@@ -53,7 +53,7 @@ ui <- fluidPage(
     sidebarLayout(
         sidebarPanel(
             selectInput("gemeinde",h3("Gemeinde auswählen"),
-                        choices = choices, selected = "5334")
+                        choices = choices, selected = "5334", selectize = TRUE)
         ),
 
         # Show a plot of the generated distribution
@@ -65,9 +65,32 @@ ui <- fluidPage(
 )
 
 # Define server logic required to draw a histogram
-server <- function(input, output) {
+server <- function(input, output, session) {
+    gemeinde <- reactiveVal()
+    
+    observeEvent(input$gemeinde, {
+        gemeinde(input$gemeinde)
+        #updateQueryString(paste0("?gemeinde=",input$gemeinde), mode = "replace")
+    })
+    
+    observeEvent(gemeinde(),{
+        updateQueryString(paste0("?gemeinde=",gemeinde()),mode="replace")
+        updateSelectInput(session,"gemeinde",selected=gemeinde())
+    })
+    
+    observeEvent(getQueryString(session), {
+        if(length(getQueryString())>0) {
+            qry <- getQueryString()
+            print(qry$gemeinde)
+
+            if(!is.na(qry$gemeinde)) {
+                gemeinde(qry$gemeinde)
+            }
+        }
+    })
+    
     output$diviAuslastung <- renderPlotly({
-        dt <- diviData %>% dplyr::filter(gemeinde==input$gemeinde) %>%
+        dt <- diviData %>% dplyr::filter(gemeinde==gemeinde()) %>%
             mutate(auslastung = round(betten_belegt/(betten_frei+betten_belegt)*100),1) %>%
             mutate(pct_covid = round(faelle_covid_aktuell_beatmet/betten_belegt*100),1) %>%
             pivot_longer(cols=c(betten_frei,betten_belegt), names_to="parameter",values_to="value")
