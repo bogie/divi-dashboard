@@ -16,50 +16,29 @@ library(stringr)
 library(tidyverse)
 library(openxlsx)
 
-gemeinden <- read.xlsx("Gemeinden.xlsx")
+if(!file.exists("divi.rds") || !file.exists("gemeinden.rds")) {
+    source("./updateDIVIdata.R")
+}
 
-fileList <- list.files("./rawData")
+updatedToday <- FALSE
 
-diviData <- lapply(fileList, function(file) {
-    dateString <- str_sub(file,23) %>% str_replace(.,"-2.csv","")
-    fileDate <- as_datetime(dateString,format="%Y-%m-%d-%H-%M")
-    csv <- read.csv(paste0("./rawData/",file))
-    csv$date <- fileDate
-    csv$X <- NULL
-    return(csv)
-})
-diviData <- bind_rows(diviData)
-
-diviData$gemeinde <- ifelse(is.na(diviData$gemeindeschluessel),diviData$kreis,diviData$gemeindeschluessel)
-diviData$kreis <- NULL
-diviData$gemeindeschluessel <- NULL
-diviData$faelle_covid_aktuell_im_bundesland <- NULL
-
-diviData$gemeinde <- ifelse(str_ends(diviData$gemeinde,"000"),str_replace_all(diviData$gemeinde,"0",""),diviData$gemeinde)
-
-diviData <- diviData %>% mutate(auslastung = round(betten_belegt/(betten_frei+betten_belegt)*100),1) %>%
-    mutate(pct_covid = round(faelle_covid_aktuell_beatmet/betten_belegt*100),1)
-
-gemeindeNamen <- diviData %>% select(gemeinde) %>% distinct(gemeinde) %>% mutate(gemeinde=as.numeric(gemeinde)) %>%
-    left_join(select(gemeinden,Gemeindeschluessel,Name),by = c("gemeinde"="Gemeindeschluessel"))
-gemeindeNamen$Name <- str_squish(gemeindeNamen$Name)
+diviData <- readRDS("divi.rds")
+gemeindeNamen <- readRDS("gemeinden.rds")
 choices <- setNames(gemeindeNamen$gemeinde,gemeindeNamen$Name)
 
+divi.mtime <- file.info("divi.rds")$mtime
 
-# Define UI for application that draws a histogram
 ui <- fluidPage(
 
     # Application title
     titlePanel("DIVI Dashboard"),
 
-    # Sidebar with a slider input for number of bins 
     sidebarLayout(
         sidebarPanel(
             selectInput("gemeinde",h3("Gemeinde auswählen"),
                         choices = choices, selected = "5334", selectize = TRUE)
         ),
 
-        # Show a plot of the generated distribution
         mainPanel(
            plotlyOutput("diviAuslastung"),
            plotlyOutput("diviBetten")
@@ -67,13 +46,18 @@ ui <- fluidPage(
     )
 )
 
-# Define server logic required to draw a histogram
 server <- function(input, output, session) {
     gemeinde <- reactiveVal()
     
+    if(file.info("divi.rds")$mtime>divi.mtime) {
+        print("divi.rds changed on disk, reloading")
+        diviData <- readRDS("divi.rds")
+        gemeindeNamen <- readRDS("gemeinden.rds")
+        divi.mtime <- file.info("divi.rds")$mtime
+    }
+    
     observeEvent(input$gemeinde, {
         gemeinde(input$gemeinde)
-        #updateQueryString(paste0("?gemeinde=",input$gemeinde), mode = "replace")
     })
     
     observeEvent(gemeinde(),{
