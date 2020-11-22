@@ -15,6 +15,7 @@ library(rvest)
 library(stringr)
 library(tidyverse)
 library(openxlsx)
+library(shinythemes)
 
 if(!file.exists("divi.rds") || !file.exists("gemeinden.rds")) {
     source("./updateDIVIdata.R")
@@ -28,22 +29,35 @@ choices <- setNames(gemeindeNamen$gemeinde,gemeindeNamen$Name)
 
 divi.mtime <- file.info("divi.rds")$mtime
 
-ui <- fluidPage(
+ui <- fixedPage(theme=shinytheme("darkly"),
 
     # Application title
-    titlePanel("DIVI Dashboard"),
-
-    sidebarLayout(
-        sidebarPanel(
-            selectInput("gemeinde",h3("Gemeinde auswählen"),
-                        choices = choices, selected = "5334", selectize = TRUE)
-        ),
-
-        mainPanel(
-           plotlyOutput("diviAuslastung"),
-           plotlyOutput("diviBetten")
-        )
+    title="DIVI Dashboard",
+    fixedRow(
+        selectInput("gemeinde",h3("Gemeinde auswählen"),
+                    choices = choices, selected = "5334", selectize = TRUE)
+    ),
+    fixedRow(
+        plotlyOutput("diviAuslastung"),
+        plotlyOutput("diviBetten")
+    ),
+    fixedRow(
+        tags$a(href="https://www.divi.de/divi-intensivregister-tagesreport-archiv-csv?layout=table","Quelle: divi.de")
     )
+        # sidebarLayout(
+    #     sidebarPanel(
+    #         selectInput("gemeinde",h3("Gemeinde auswählen"),
+    #                     choices = choices, selected = "5334", selectize = TRUE)
+    #     ),
+    # 
+    #     mainPanel(
+    #         fillRow(
+    #             plotlyOutput("diviAuslastung"),
+    #             plotlyOutput("diviBetten")   
+    #         ),
+    #        tags$a(href="https://www.divi.de/divi-intensivregister-tagesreport-archiv-csv?layout=table","Quelle: divi.de")
+    #     )
+    # )
 )
 
 server <- function(input, output, session) {
@@ -74,6 +88,10 @@ server <- function(input, output, session) {
                 gemeinde(qry$gemeinde)
             }
         }
+    })
+    
+    output$desc <- renderUI({
+        tags$a(href="https://www.divi.de/divi-intensivregister-tagesreport-archiv-csv?layout=table","Quelle: divi.de")
     })
     
     output$diviAuslastung <- renderPlotly({
