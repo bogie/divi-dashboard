@@ -37,6 +37,9 @@ diviData$faelle_covid_aktuell_im_bundesland <- NULL
 
 diviData$gemeinde <- ifelse(str_ends(diviData$gemeinde,"000"),str_replace_all(diviData$gemeinde,"0",""),diviData$gemeinde)
 
+diviData <- diviData %>% mutate(auslastung = round(betten_belegt/(betten_frei+betten_belegt)*100),1) %>%
+    mutate(pct_covid = round(faelle_covid_aktuell_beatmet/betten_belegt*100),1)
+
 gemeindeNamen <- diviData %>% select(gemeinde) %>% distinct(gemeinde) %>% mutate(gemeinde=as.numeric(gemeinde)) %>%
     left_join(select(gemeinden,Gemeindeschluessel,Name),by = c("gemeinde"="Gemeindeschluessel"))
 gemeindeNamen$Name <- str_squish(gemeindeNamen$Name)
@@ -91,8 +94,6 @@ server <- function(input, output, session) {
     
     output$diviAuslastung <- renderPlotly({
         dt <- diviData %>% dplyr::filter(gemeinde==gemeinde()) %>%
-            mutate(auslastung = round(betten_belegt/(betten_frei+betten_belegt)*100),1) %>%
-            mutate(pct_covid = round(faelle_covid_aktuell_beatmet/betten_belegt*100),1) %>%
             pivot_longer(cols=c(betten_frei,betten_belegt), names_to="parameter",values_to="value")
         ylbl <- list(
             title="Prozent"
