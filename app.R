@@ -25,7 +25,7 @@ updatedToday <- FALSE
 
 diviData <- readRDS("divi.rds")
 gemeindeNamen <- readRDS("gemeinden.rds")
-choices <- setNames(gemeindeNamen$gemeinde,gemeindeNamen$Name)
+choices <- setNames(gemeindeNamen$gemeinde,gemeindeNamen$name)
 
 divi.mtime <- file.info("divi.rds")$mtime
 
@@ -34,12 +34,15 @@ ui <- fixedPage(theme=shinytheme("darkly"),
     # Application title
     title="DIVI Dashboard",
     fixedRow(
-        selectInput("gemeinde",h3("Gemeinde auswählen"),
-                    choices = choices, selected = "5334", selectize = TRUE)
+        column(width = 4,selectInput("gemeinde",h3("Gemeinde auswählen"),
+                    choices = choices, selected = "5334", selectize = TRUE)),
+        column(width=6,
+        htmlOutput("stats"))
     ),
     fixedRow(
         plotlyOutput("diviAuslastung"),
-        plotlyOutput("diviBetten")
+        plotlyOutput("diviBetten"),
+        plotlyOutput("diviPop")
     ),
     fixedRow(
         tags$a(href="https://www.divi.de/divi-intensivregister-tagesreport-archiv-csv?layout=table","Quelle: divi.de")
@@ -94,6 +97,15 @@ server <- function(input, output, session) {
         tags$a(href="https://www.divi.de/divi-intensivregister-tagesreport-archiv-csv?layout=table","Quelle: divi.de")
     })
     
+    output$stats <- renderUI({
+        krStats <- diviData %>% filter(date==max(date) & gemeinde==gemeinde())
+        strName <- paste("Name:",krStats$name)
+        strType <- paste("Bezeichnung:",krStats$type)
+        strArea <- paste0("Fläche: ",krStats$area,"km²")
+        strPop <- paste("Population:",krStats$pop_all)
+        HTML(paste(strName,strType,strArea,strPop,sep="<br />"))
+    })
+    
     output$diviAuslastung <- renderPlotly({
         dt <- diviData %>% dplyr::filter(gemeinde==gemeinde()) %>%
             pivot_longer(cols=c(betten_frei,betten_belegt), names_to="parameter",values_to="value")
@@ -116,6 +128,14 @@ server <- function(input, output, session) {
             add_lines(x=~date, y=~faelle_covid_aktuell, name="Aktuelle COVID Fälle") %>%
             add_lines(x=~date,y=~faelle_covid_aktuell_beatmet, name="Aktuelle COVID Fälle(beatmet)") %>%
             plotly::layout(xaxis=list(title="Datum"),yaxis=list(title="Fälle"))
+    })
+    
+    output$diviPop <- renderPlotly({
+        dt <- diviData %>% dplyr::filter(gemeinde==input$gemeinde)
+        plot_ly(dt, type="scatter",mode="lines") %>%
+            add_lines(x=~date, y=~covid_per_100k, name="COVID Fälle/100k Einwohner") %>%
+            add_lines(x=~date, y=~covid_per_100k_intubated, name="COVID Fälle/100k Einwohner(beatmet)") %>%
+            plotly::layout(xaxis=list(title="Datum"),yaxis=list(title="Fälle/100k Einwohner"))
     })
 }
 
