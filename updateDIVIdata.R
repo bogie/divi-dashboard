@@ -3,6 +3,7 @@ library(rvest)
 library(stringr)
 library(dplyr)
 library(openxlsx)
+library(rjson)
 
 getDiviDataArchiveUrls <- function() {
     urlSeq <- seq(0,200,by=20)
@@ -45,15 +46,58 @@ getLatestDIVIdata <- function() {
     write.csv(csv,file=str_c("./rawData/divi-intensivregister-",fname))
 }
 
-getLatestDIVIdata()
+getDIVIapi <- function() {
+    apiData <- fromJSON(file = "https://www.intensivregister.de/api/public/intensivregister",simplify = TRUE)
+    apiDFs <- lapply(apiData$data, function(entry) {
+        data.frame(id=entry$krankenhausStandort$id,
+                   desc=entry$krankenhausStandort$bezeichnung,
+                   road=entry$krankenhausStandort$strasse,
+                   nr=entry$krankenhausStandort$hausnummer,
+                   plz=entry$krankenhausStandort$plz,
+                   city=entry$krankenhausStandort$ort,
+                   state=entry$krankenhausStandort$bundesland,
+                   ikNr=entry$krankenhausStandort$ikNummer,
+                   lat=entry$krankenhausStandort$position["latitude"],
+                   lon=entry$krankenhausStandort$position["longitude"],
+                   reportDate=entry$meldezeitpunkt,
+                   statusLowCare=entry$bettenStatus["statusLowCare"],
+                   statusHighCare=entry$bettenStatus["statusHighCare"],
+                   statusECMO=entry$bettenStatus["statusECMO"],
+                   reportedUnits=paste(entry$meldebereiche,collapse = ";")
+        )
+    })
+    apiDFs <- bind_rows(apiDFs)
+    return(apiDFs)
+}
 
-#gemeinden <- read.xlsx("Gemeinden.xlsx")
-
+raw_hospitals <- getDIVIapi()
+hospitals <- raw_hospitals %>% mutate_at(c(2:8,11:15), as.character)
 kreise <- read.xlsx("04-kreise.xlsx",sheet = 2, startRow = 6)
 colnames(kreise) <- c("key","type","name","NUTS3","area","pop_all","pop_male","pop_female","pop_per_km2")
-
 kreise$key <- as.numeric(kreise$key)
 
+zips <- read.csv("zipcodes.de.csv",
+                 fileEncoding = "UTF-8",
+                 colClasses = c("character","character","character",
+                                "character","character","character","character",
+                                "character","character","numeric","numeric"))
+
+filteredZipcodes <- zips %>% distinct(zipcode,.keep_all = TRUE)
+
+hospitals <- hospitals %>%
+    left_join(dplyr::select(filteredZipcodes,zipcode,community_code),by=c("plz"="zipcode"))
+
+hospitals <- hospitals %>% mutate(community_code = case_when(
+    plz == "19049" ~ "13004",
+    plz == "59870" ~ "05958",
+    plz == "95693" ~ "03355",
+    plz == "99437" ~ "16071",
+    TRUE ~ as.character(community_code)
+)) %>%
+    mutate(community_code = as.numeric(community_code))
+
+
+getLatestDIVIdata()
 fileList <- list.files("./rawData")
 
 diviData <- lapply(fileList, function(file) {
@@ -71,11 +115,10 @@ diviData$kreis <- NULL
 diviData$gemeindeschluessel <- NULL
 diviData$faelle_covid_aktuell_im_bundesland <- NULL
 
-#diviData$gemeinde <- ifelse(str_ends(diviData$gemeinde,"000"),str_replace_all(diviData$gemeinde,"0",""),diviData$gemeinde)
 diviData <- diviData %>%
     mutate(gemeinde=as.numeric(gemeinde)) %>%
     left_join(kreise,by=c("gemeinde"="key"))
-#diviData$Name <- str_squish(diviData$Name)
+
 
 diviData <- diviData %>%
     mutate(
@@ -86,7 +129,7 @@ diviData <- diviData %>%
         )
 
 gemeindeNamen <- diviData %>% dplyr::select(gemeinde, name) %>% distinct(gemeinde,.keep_all = TRUE)
-#gemeindeNamen$Name <- str_squish(gemeindeNamen$Name)
 
 saveRDS(diviData,file="divi.rds")
 saveRDS(gemeindeNamen, file="gemeinden.rds")
+saveRDS(hospitals,file="hospitals.rds")

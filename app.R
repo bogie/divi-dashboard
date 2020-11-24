@@ -25,6 +25,7 @@ updatedToday <- FALSE
 
 diviData <- readRDS("divi.rds")
 gemeindeNamen <- readRDS("gemeinden.rds")
+hospitals <- readRDS("hospitals.rds")
 choices <- setNames(gemeindeNamen$gemeinde,gemeindeNamen$name)
 
 divi.mtime <- file.info("divi.rds")$mtime
@@ -38,6 +39,9 @@ ui <- fixedPage(theme=shinytheme("darkly"),
                     choices = choices, selected = "5334", selectize = TRUE)),
         column(width=6,
         htmlOutput("stats"))
+    ),
+    fixedRow(
+        dataTableOutput("hospitals")
     ),
     fixedRow(
         plotlyOutput("diviAuslastung"),
@@ -97,12 +101,16 @@ server <- function(input, output, session) {
         tags$a(href="https://www.divi.de/divi-intensivregister-tagesreport-archiv-csv?layout=table","Quelle: divi.de")
     })
     
+    output$hospitals <- renderDataTable({
+        hospitals %>% filter(community_code == gemeinde())
+    })
+    
     output$stats <- renderUI({
         krStats <- diviData %>% filter(date==max(date) & gemeinde==gemeinde())
         strName <- paste("Name:",krStats$name)
         strType <- paste("Bezeichnung:",krStats$type)
         strArea <- paste0("Fläche: ",format(krStats$area,big.mark = ".",decimal.mark = ",",trim=TRUE),"km²")
-        strPop <- paste("Population:",format(krStats$pop_all,big.mark = ".",trim = TRUE))
+        strPop <- paste("Population:",format(krStats$pop_all,big.mark = ".",decimal.mark=",",trim = TRUE))
         strStd <- paste("Standorte:",krStats$anzahl_standorte)
         strBetten <- paste0("Betten(frei/gesamt): ",krStats$betten_frei,"/",krStats$betten_frei+krStats$betten_belegt)
         strDate <- paste("Aktualisiert:",krStats$daten_stand)
