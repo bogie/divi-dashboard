@@ -103,7 +103,10 @@ server <- function(input, output, session) {
         strType <- paste("Bezeichnung:",krStats$type)
         strArea <- paste0("Fläche: ",format(krStats$area,big.mark = ".",decimal.mark = ",",trim=TRUE),"km²")
         strPop <- paste("Population:",format(krStats$pop_all,big.mark = ".",trim = TRUE))
-        HTML(paste(strName,strType,strArea,strPop,sep="<br />"))
+        strStd <- paste("Standorte:",krStats$anzahl_standorte)
+        strBetten <- paste0("Betten(frei/gesamt): ",krStats$betten_frei,"/",krStats$betten_frei+krStats$betten_belegt)
+        strDate <- paste("Aktualisiert:",krStats$daten_stand)
+        HTML(paste(strName,strType,strArea,strPop,strStd,strBetten,strDate,sep="<br />"))
     })
     
     output$diviAuslastung <- renderPlotly({
