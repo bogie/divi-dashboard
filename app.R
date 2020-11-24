@@ -101,8 +101,8 @@ server <- function(input, output, session) {
         krStats <- diviData %>% filter(date==max(date) & gemeinde==gemeinde())
         strName <- paste("Name:",krStats$name)
         strType <- paste("Bezeichnung:",krStats$type)
-        strArea <- paste0("Fläche: ",krStats$area,"km²")
-        strPop <- paste("Population:",krStats$pop_all)
+        strArea <- paste0("Fläche: ",format(krStats$area,big.mark = ".",decimal.mark = ",",trim=TRUE),"km²")
+        strPop <- paste("Population:",format(krStats$pop_all,big.mark = ".",trim = TRUE))
         HTML(paste(strName,strType,strArea,strPop,sep="<br />"))
     })
     
