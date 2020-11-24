@@ -1,4 +1,5 @@
 library(rjson)
+library(dplyr)
 
 getDIVIapi <- function() {
     apiData <- fromJSON(file = "https://www.intensivregister.de/api/public/intensivregister",simplify = TRUE)
@@ -47,7 +48,7 @@ hospitals <- hospitals %>% mutate(community_code = case_when(
 )) %>%
     mutate(community_code = as.numeric(community_code)) %>%
     mutate_at(c("statusLowCare","statusHighCare","statusECMO"),
-              ~factor(., levels=c("VERFUEGBAR","BEGRENZT","NICHT_VERFUEGBAR","KEINE_ANGABE"))
+              ~factor(., levels=c("VERFUEGBAR","BEGRENZT","NICHT_VERFUEGBAR","KEINE_ANGABE"), labels = c("Verfügbar","Begrenzt","Nicht verfügbar","Keine Angabe"))
     )
 
 saveRDS(hospitals,file="hospitals.rds")

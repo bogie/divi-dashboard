@@ -17,18 +17,39 @@ library(tidyverse)
 library(openxlsx)
 library(shinythemes)
 
+Sys.setlocale("LC_CTYPE","german")
 if(!file.exists("divi.rds") || !file.exists("gemeinden.rds")) {
-    source("./updateDIVIdata.R")
+    source("./updateDIVIdata.R",encoding = "utf-8")
 }
 
 if(!file.exists("hospitals.rds")) {
-    source("./updateHospitals.R")
+    source("./updateHospitals.R",encoding = "utf-8")
+}
+
+fix.encoding <- function(df, originalEncoding = "UTF-8") {
+    numCols <- ncol(df)
+    df <- data.frame(df)
+    for (col in 1:numCols)
+    {
+        if(class(df[, col]) == "character"){
+            Encoding(df[, col]) <- originalEncoding
+        }
+        
+        if(class(df[, col]) == "factor"){
+            Encoding(levels(df[, col])) <- originalEncoding
+        }
+    }
+    return(as_data_frame(df))
 }
 
 diviData <- readRDS("divi.rds")
 gemeindeNamen <- readRDS("gemeinden.rds")
 hospitals <- readRDS("hospitals.rds")
 choices <- setNames(gemeindeNamen$gemeinde,gemeindeNamen$name)
+
+diviData <- fix.encoding(diviData)
+gemeindeNamen <- fix.encoding(gemeindeNamen)
+hospitals <- fix.encoding(hospitals)
 
 divi.mtime <- file.info("divi.rds")$mtime
 hospitals.mtime <- file.info("hospitals.rds")$mtime
@@ -51,9 +72,6 @@ ui <- fixedPage(theme=shinytheme("darkly"),
         plotlyOutput("map")
         
     ),
-    # fixedRow(
-    #     dataTableOutput("hospitals")
-    # ),
     fixedRow(
         plotlyOutput("diviAuslastung"),
         plotlyOutput("diviBetten"),
@@ -62,20 +80,6 @@ ui <- fixedPage(theme=shinytheme("darkly"),
     fixedRow(
         tags$a(href="https://www.divi.de/divi-intensivregister-tagesreport-archiv-csv?layout=table","Quelle: divi.de")
     )
-        # sidebarLayout(
-    #     sidebarPanel(
-    #         selectInput("gemeinde",h3("Gemeinde auswählen"),
-    #                     choices = choices, selected = "5334", selectize = TRUE)
-    #     ),
-    # 
-    #     mainPanel(
-    #         fillRow(
-    #             plotlyOutput("diviAuslastung"),
-    #             plotlyOutput("diviBetten")   
-    #         ),
-    #        tags$a(href="https://www.divi.de/divi-intensivregister-tagesreport-archiv-csv?layout=table","Quelle: divi.de")
-    #     )
-    # )
 )
 
 server <- function(input, output, session) {
@@ -140,7 +144,7 @@ server <- function(input, output, session) {
                 hoverinfo="text",
                 hovertext = ~paste(
                     paste0("<b>",desc,"</b>"),
-                    paste0(road," ",nr,", ",plz," ",city),
+                    paste0("Address: ",road," ",nr,", ",plz," ",city),
                     paste("Low Care:",statusLowCare),
                     paste("High Care:",statusHighCare),
                     paste("ECMO:",statusECMO),
