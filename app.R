@@ -124,7 +124,7 @@ server <- function(input, output, session) {
                 lon = ~longitude,
                 mode = "markers",
                 color = ~statusHighCare,
-                colors = c("orange","red","green"),
+                colors = c("green","orange","red","grey"),
                 type = 'scattermapbox',
                 hoverinfo="text",
                 hovertext = ~paste(

@@ -94,7 +94,10 @@ hospitals <- hospitals %>% mutate(community_code = case_when(
     plz == "99437" ~ "16071",
     TRUE ~ as.character(community_code)
 )) %>%
-    mutate(community_code = as.numeric(community_code))
+    mutate(community_code = as.numeric(community_code)) %>%
+    mutate_at(c("statusLowCare","statusHighCare","statusECMO"),
+              ~factor(., levels=c("VERFUEGBAR","BEGRENZT","NICHT_VERFUEGBAR","KEINE_ANGABE"))
+    )
 
 
 getLatestDIVIdata()
