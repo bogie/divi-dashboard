@@ -30,6 +30,8 @@ choices <- setNames(gemeindeNamen$gemeinde,gemeindeNamen$name)
 
 divi.mtime <- file.info("divi.rds")$mtime
 
+mapBoxToken <- paste(readLines("./mapBoxToken"), collapse="")
+
 ui <- fixedPage(theme=shinytheme("darkly"),
 
     # Application title
@@ -41,8 +43,12 @@ ui <- fixedPage(theme=shinytheme("darkly"),
         htmlOutput("stats"))
     ),
     fixedRow(
-        dataTableOutput("hospitals")
+        plotlyOutput("map")
+        
     ),
+    # fixedRow(
+    #     dataTableOutput("hospitals")
+    # ),
     fixedRow(
         plotlyOutput("diviAuslastung"),
         plotlyOutput("diviBetten"),
@@ -103,6 +109,41 @@ server <- function(input, output, session) {
     
     output$hospitals <- renderDataTable({
         hospitals %>% filter(community_code == gemeinde())
+    })
+    
+    output$map <- renderPlotly({
+        df <- subset(hospitals,community_code==gemeinde())
+        center.lon <- median(df$longitude)
+        center.lat <- median(df$latitude)
+        
+        print(paste("Center: ",center.lon, center.lat))
+
+        fig <- df %>%
+            plot_ly(
+                lat = ~latitude,
+                lon = ~longitude,
+                mode = "markers",
+                color = ~statusHighCare,
+                colors = c("red","orange","green"),
+                type = 'scattermapbox',
+                hoverinfo="text",
+                hovertext = ~paste(
+                    paste0("<b>",desc,"</b>"),
+                    paste0(road," ",nr,", ",plz," ",city),
+                    paste("Low Care:",statusLowCare),
+                    paste("High Care:",statusHighCare),
+                    paste("ECMO:",statusECMO),
+                    sep="<br />")) 
+        fig <- fig %>%
+            layout(
+                mapbox = list(
+                    style = 'dark',
+                    zoom = 8,
+                    center = list(lon = center.lon, lat = center.lat))) 
+        fig <- fig %>%
+            config(mapboxAccessToken = mapBoxToken)
+        
+        fig
     })
     
     output$stats <- renderUI({
