@@ -3,5 +3,4 @@
 .RData
 .Ruserdata
 rawData
-gemeinden.rds
-divi.rds
+*.rds
