@@ -21,7 +21,9 @@ if(!file.exists("divi.rds") || !file.exists("gemeinden.rds")) {
     source("./updateDIVIdata.R")
 }
 
-updatedToday <- FALSE
+if(!file.exists("hospitals.rds")) {
+    source("./updateHospitals.R")
+}
 
 diviData <- readRDS("divi.rds")
 gemeindeNamen <- readRDS("gemeinden.rds")
@@ -29,6 +31,7 @@ hospitals <- readRDS("hospitals.rds")
 choices <- setNames(gemeindeNamen$gemeinde,gemeindeNamen$name)
 
 divi.mtime <- file.info("divi.rds")$mtime
+hospitals.mtime <- file.info("hospitals.rds")$mtime
 
 mapBoxToken <- paste(readLines("./mapBoxToken"), collapse="")
 
@@ -39,8 +42,10 @@ ui <- fixedPage(theme=shinytheme("darkly"),
     fixedRow(
         column(width = 4,selectInput("gemeinde",h3("Gemeinde auswählen"),
                     choices = choices, selected = "5334", selectize = TRUE)),
-        column(width=6,
-        htmlOutput("stats"))
+        column(width = 4, selectInput("mapStatus",h3("Farbkodierung Karte wählen"),
+                                      choices = c("Low Care"="statusLowCare","High Care"="statusHighCare","ECMO"="statusECMO"),
+                                      selected = "statusHighCare", selectize = TRUE)),
+        column(width = 6, htmlOutput("stats"))
     ),
     fixedRow(
         plotlyOutput("map")
@@ -83,6 +88,12 @@ server <- function(input, output, session) {
         divi.mtime <- file.info("divi.rds")$mtime
     }
     
+    if(file.info("hospitals.rds")$mtime>divi.mtime) {
+        print("hospitals.rds changed on disk, reloading")
+        hospitals <- readRDS("hospitals.rds")
+        hospitals.mtime <- file.info("hospitals.rds")$mtime
+    }
+    
     observeEvent(input$gemeinde, {
         gemeinde(input$gemeinde)
     })
@@ -123,7 +134,7 @@ server <- function(input, output, session) {
                 lat = ~latitude,
                 lon = ~longitude,
                 mode = "markers",
-                color = ~statusHighCare,
+                color = df[,input$mapStatus],
                 colors = c("green","orange","red","grey"),
                 type = 'scattermapbox',
                 hoverinfo="text",
