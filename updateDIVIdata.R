@@ -37,7 +37,7 @@ downloadDIVIdata <- function() {
 
 getLatestDIVIdata <- function() {
     csv <- read.csv("https://diviexchange.blob.core.windows.net/%24web/DIVI_Intensivregister_Auszug_pro_Landkreis.csv")
-    fname <- levels(csv$daten_stand) %>%
+    fname <- ifelse(is.factor(csv$daten_stand),levels(csv$daten_stand),max(csv$daten_stand)) %>%
         as_datetime(.,format="%Y-%m-%d %H:%M:%S") %>%
         as.character.Date(.,format="%Y-%m-%d-%H-%M")
     fname <- str_c(fname,".csv")
