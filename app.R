@@ -76,6 +76,7 @@ zips <- read.csv("zipcodes.de.csv",
                                 "character","character","numeric","numeric"))
 
 filteredZipcodes <- zips %>% distinct(zipcode,.keep_all = TRUE)
+blNames <- c("Schleswig-Holstein","Hamburg","Niedersachsen","Bremen","Nordrhein-Westfalen","Hessen","Rheinland-Pfalz","Baden-Würrtemberg","Bayern","Saarland","Berlin","Brandenburg","Mecklenburg-Vorpommern","Sachsen","Sachsen-Anhalt","Thüringen")
 
 hospitals <- loadHospitalData()
 
@@ -134,7 +135,8 @@ ui <- navbarPage(theme=shinytheme("darkly"),
              ),
              fluidRow(
                  plotlyOutput("overallBetten"),
-                 plotlyOutput("overallAuslastung")
+                 plotlyOutput("overallAuslastung"),
+                 plotlyOutput("bundeslandBetten")
              )
     )
 )
@@ -348,6 +350,26 @@ server <- function(input, output, session) {
             add_trace(x=~date,y=~sum_faelle_covid_aktuell_beatmet, name="Aktuelle COVID Fälle(beatmet)") %>%
             plotly::layout(xaxis=list(title="Datum"),yaxis=list(title="Fälle"), hovermode="x unified")
     })
+    
+    output$bundeslandBetten <- renderPlotly({
+        dt <- diviData %>% filter(!is.na(bundesland)) %>%
+            group_by(date,bundesland) %>% summarise(sum_area = sum(area),
+                                                        sum_pop = sum(pop_all),
+                                                        sum_standorte = sum(anzahl_standorte),
+                                                        sum_free_beds = sum(betten_frei),
+                                                        sum_occup_beds = sum(betten_belegt),
+                                                        sum_faelle_covid_aktuell = sum(faelle_covid_aktuell),
+                                                        sum_faelle_covid_aktuell_beatmet = sum(faelle_covid_aktuell_beatmet))
+        plot_ly(dt,
+                x=~date,
+                y=~sum_faelle_covid_aktuell,
+                color=~as.factor(bundesland),
+                name=~blNames[bundesland]) %>%
+            group_by(bundesland) %>%
+            add_lines() %>%
+            plotly::layout(xaxis=list(title="Datum"),yaxis=list(title="Fälle"))
+    })
+    
     
     output$overallAuslastung <- renderPlotly({
         dt <- diviData %>% group_by(date) %>% summarise(sum_betten_frei = sum(betten_frei),
