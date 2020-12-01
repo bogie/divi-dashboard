@@ -12,7 +12,6 @@ getDiviDataArchiveUrls <- function() {
     csvUrls <- sapply(pageUrls, function(pUrl) {
         diviPage <- read_html(pUrl)
         urlList <- html_nodes(diviPage,"#table-document a")
-        #return(urlList)
         urlList <- lapply(urlList,function(x) { html_attr(x,"href")})
         urlList <- unlist(urlList, recursive = FALSE,use.names = FALSE)
         return(urlList)
@@ -51,9 +50,6 @@ kreise <- read.xlsx("04-kreise.xlsx",sheet = 2, startRow = 6)
 colnames(kreise) <- c("key","type","name","NUTS3","area","pop_all","pop_male","pop_female","pop_per_km2")
 kreise$key <- as.numeric(kreise$key)
 
-
-
-
 getLatestDIVIdata()
 fileList <- list.files("./rawData")
 
@@ -80,7 +76,7 @@ diviData <- diviData %>%
 diviData <- diviData %>%
     mutate(
         auslastung = round(betten_belegt/(betten_frei+betten_belegt)*100,1),
-        pct_covid = round(faelle_covid_aktuell_beatmet/betten_belegt*100,1),
+        pct_covid = round(faelle_covid_aktuell/betten_belegt*100,1),
         covid_per_100k = round(faelle_covid_aktuell/(pop_all/100000)),
         covid_per_100k_intubated = round(faelle_covid_aktuell_beatmet/(pop_all/100000))
         )

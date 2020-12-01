@@ -16,14 +16,11 @@ library(stringr)
 library(tidyverse)
 library(openxlsx)
 library(shinythemes)
+library(jsonlite)
 
 Sys.setlocale("LC_CTYPE","german")
 if(!file.exists("divi.rds") || !file.exists("gemeinden.rds")) {
     source("./updateDIVIdata.R",encoding = "utf-8")
-}
-
-if(!file.exists("hospitals.rds")) {
-    source("./updateHospitals.R",encoding = "utf-8")
 }
 
 fix.encoding <- function(df, originalEncoding = "UTF-8") {
@@ -42,48 +39,109 @@ fix.encoding <- function(df, originalEncoding = "UTF-8") {
     return(as_data_frame(df))
 }
 
+checkFileCache <- function(fname, cacheTime = hours(1)) {
+    mtime <- file.info(fname)$mtime
+    
+    if(!file.exists(fname) | (mtime+cacheTime)<now()) {
+        print(paste("File: ",fname," is not up to date. Fetching new version"))
+        return(TRUE)
+    } else
+        return(FALSE)
+}
+
+loadHospitalData <- function() {
+    download.file("https://www.intensivregister.de/api/public/intensivregister","json_data/hospitals.json")
+    hospitals <- jsonlite::fromJSON("json_data/hospitals.json",flatten = TRUE)$data
+    hospitals <- hospitals %>%
+        left_join(dplyr::select(filteredZipcodes,zipcode,community_code),by=c("krankenhausStandort.plz"="zipcode"))
+    
+    hospitals <- hospitals %>% mutate(community_code = case_when(
+        krankenhausStandort.plz == "19049" ~ "13004",
+        krankenhausStandort.plz == "59870" ~ "05958",
+        krankenhausStandort.plz == "95693" ~ "03355",
+        krankenhausStandort.plz == "99437" ~ "16071",
+        TRUE ~ as.character(community_code)
+    )) %>%
+        mutate(community_code = as.numeric(community_code)) %>%
+        mutate_at(c("bettenStatus.statusLowCare","bettenStatus.statusHighCare","bettenStatus.statusECMO"),
+                  ~factor(., levels=c("VERFUEGBAR","BEGRENZT","NICHT_VERFUEGBAR","KEINE_ANGABE"), labels = c("Verfügbar","Begrenzt","Nicht verfügbar","Keine Angabe"))
+        )
+    return(hospitals)
+}
+
+zips <- read.csv("zipcodes.de.csv",
+                 fileEncoding = "UTF-8",
+                 colClasses = c("character","character","character",
+                                "character","character","character","character",
+                                "character","character","numeric","numeric"))
+
+filteredZipcodes <- zips %>% distinct(zipcode,.keep_all = TRUE)
+
+hospitals <- loadHospitalData()
+
 diviData <- readRDS("divi.rds")
 gemeindeNamen <- readRDS("gemeinden.rds")
-hospitals <- readRDS("hospitals.rds")
-choices <- setNames(gemeindeNamen$gemeinde,gemeindeNamen$name)
-
 diviData <- fix.encoding(diviData)
 gemeindeNamen <- fix.encoding(gemeindeNamen)
-hospitals <- fix.encoding(hospitals)
 
 divi.mtime <- file.info("divi.rds")$mtime
-hospitals.mtime <- file.info("hospitals.rds")$mtime
+choices <- setNames(gemeindeNamen$gemeinde,gemeindeNamen$name)
 
 mapBoxToken <- paste(readLines("./mapBoxToken"), collapse="")
 
-ui <- fixedPage(theme=shinytheme("darkly"),
+ui <- navbarPage(theme=shinytheme("darkly"),
 
     # Application title
     title="DIVI Dashboard",
-    fixedRow(
-        column(width = 4,selectInput("gemeinde",h3("Gemeinde auswählen"),
-                    choices = choices, selected = "5334", selectize = TRUE)),
-        column(width = 4, selectInput("mapStatus",h3("Farbkodierung Karte wählen"),
-                                      choices = c("Low Care"="statusLowCare","High Care"="statusHighCare","ECMO"="statusECMO"),
-                                      selected = "statusHighCare", selectize = TRUE)),
-        column(width = 6, htmlOutput("stats"))
+    tabPanel("Gemeinden",
+        fluidRow(
+            column(width = 4,selectInput("gemeinde",h3("Gemeinde auswählen"),
+                        choices = choices, selected = "5334", selectize = TRUE)),
+            column(width = 4, selectInput("mapStatus",h3("Farbkodierung Karte wählen"),
+                                          choices = c("Low Care"="bettenStatus.statusLowCare",
+                                                      "High Care"="bettenStatus.statusHighCare",
+                                                      "ECMO"="bettenStatus.statusECMO"),
+                                          selected = "bettenStatus.statusHighCare", selectize = TRUE))
+        ),
+        fluidRow(
+            column(width = 4, htmlOutput("stats")),
+            column(width = 6, tableOutput("plotlyClick"))
+        ),
+        fluidRow(
+            plotlyOutput("map",height = "600px")
+        ),
+        fluidRow(
+            plotlyOutput("diviAuslastung"),
+            plotlyOutput("diviBetten"),
+            plotlyOutput("diviPop")
+        ),
+        fluidRow(
+            tags$a(href="https://www.divi.de/divi-intensivregister-tagesreport-archiv-csv?layout=table","Quelle: divi.de")
+        )
     ),
-    fixedRow(
-        plotlyOutput("map")
-        
-    ),
-    fixedRow(
-        plotlyOutput("diviAuslastung"),
-        plotlyOutput("diviBetten"),
-        plotlyOutput("diviPop")
-    ),
-    fixedRow(
-        tags$a(href="https://www.divi.de/divi-intensivregister-tagesreport-archiv-csv?layout=table","Quelle: divi.de")
+    tabPanel("Deutschland",
+             fluidRow(selectInput("overallMapStatus",h3("Farbkodierung Karte wählen"),
+                                  choices = c("Low Care"="bettenStatus.statusLowCare",
+                                              "High Care"="bettenStatus.statusHighCare",
+                                              "ECMO"="bettenStatus.statusECMO"),
+                                  selected = "bettenStatus.statusHighCare", selectize = TRUE)),
+             fluidRow(
+                 column(width = 4, htmlOutput("overallStats")),
+                 column(width = 6, tableOutput("overallPlotlyClick"))
+             ),
+             fluidRow(
+                 plotlyOutput("deutschlandMap", height="720px")
+             ),
+             fluidRow(
+                 plotlyOutput("overallBetten"),
+                 plotlyOutput("overallAuslastung")
+             )
     )
 )
 
 server <- function(input, output, session) {
     gemeinde <- reactiveVal()
+    
     
     if(file.info("divi.rds")$mtime>divi.mtime) {
         print("divi.rds changed on disk, reloading")
@@ -91,11 +149,9 @@ server <- function(input, output, session) {
         gemeindeNamen <- readRDS("gemeinden.rds")
         divi.mtime <- file.info("divi.rds")$mtime
     }
-    
-    if(file.info("hospitals.rds")$mtime>divi.mtime) {
-        print("hospitals.rds changed on disk, reloading")
-        hospitals <- readRDS("hospitals.rds")
-        hospitals.mtime <- file.info("hospitals.rds")$mtime
+
+    if(checkFileCache("json_data/hospitals.json")) {
+        hospitals <- loadHospitalData()
     }
     
     observeEvent(input$gemeinde, {
@@ -128,27 +184,33 @@ server <- function(input, output, session) {
     
     output$map <- renderPlotly({
         df <- subset(hospitals,community_code==gemeinde())
-        center.lon <- median(df$longitude)
-        center.lat <- median(df$latitude)
+        center.lon <- median(df$krankenhausStandort.position.longitude)
+        center.lat <- median(df$krankenhausStandort.position.latitude)
         
         print(paste("Center: ",center.lon, center.lat))
 
         fig <- df %>%
             plot_ly(
-                lat = ~latitude,
-                lon = ~longitude,
+                lat = ~krankenhausStandort.position.latitude,
+                lon = ~krankenhausStandort.position.longitude,
+                customdata = ~krankenhausStandort.id,
                 mode = "markers",
                 color = df[,input$mapStatus],
                 colors = c("green","orange","red","grey"),
                 type = 'scattermapbox',
                 hoverinfo="text",
+                source = "diviMap",
                 hovertext = ~paste(
-                    paste0("<b>",desc,"</b>"),
-                    paste0("Address: ",road," ",nr,", ",plz," ",city),
-                    paste("Low Care:",statusLowCare),
-                    paste("High Care:",statusHighCare),
-                    paste("ECMO:",statusECMO),
-                    sep="<br />")) 
+                    paste0("<b>",krankenhausStandort.bezeichnung,"</b>"),
+                    paste0("Address: ",krankenhausStandort.strasse," ",
+                           krankenhausStandort.hausnummer,", ",
+                           krankenhausStandort.plz," ",
+                           krankenhausStandort.ort),
+                    paste("Low Care:",bettenStatus.statusLowCare),
+                    paste("High Care:",bettenStatus.statusHighCare),
+                    paste("ECMO:",bettenStatus.statusECMO),
+                    sep="<br />")
+                )
         fig <- fig %>%
             layout(
                 mapbox = list(
@@ -159,6 +221,88 @@ server <- function(input, output, session) {
             config(mapboxAccessToken = mapBoxToken)
         
         fig
+    })
+    
+    output$deutschlandMap <- renderPlotly({
+        center.lon <- median(hospitals$krankenhausStandort.position.longitude)
+        center.lat <- median(hospitals$krankenhausStandort.position.latitude)
+        
+        print(paste("Center: ",center.lon, center.lat))
+        
+        fig <- hospitals %>%
+            plot_ly(
+                lat = ~krankenhausStandort.position.latitude,
+                lon = ~krankenhausStandort.position.longitude,
+                customdata = ~krankenhausStandort.id,
+                mode = "markers",
+                color = hospitals[,input$overallMapStatus],
+                colors = c("green","orange","red","grey"),
+                type = 'scattermapbox',
+                hoverinfo="text",
+                source = "diviMap",
+                hovertext = ~paste(
+                    paste0("<b>",krankenhausStandort.bezeichnung,"</b>"),
+                    paste0("Address: ",krankenhausStandort.strasse," ",
+                           krankenhausStandort.hausnummer,", ",
+                           krankenhausStandort.plz," ",
+                           krankenhausStandort.ort),
+                    paste("Low Care:",bettenStatus.statusLowCare),
+                    paste("High Care:",bettenStatus.statusHighCare),
+                    paste("ECMO:",bettenStatus.statusECMO),
+                    sep="<br />")
+            )
+        fig <- fig %>%
+            layout(
+                mapbox = list(
+                    style = 'dark',
+                    zoom = 5,
+                    center = list(lon = center.lon, lat = center.lat))) 
+        fig <- fig %>%
+            config(mapboxAccessToken = mapBoxToken)
+        
+        fig
+    })
+    
+    output$plotlyClick <- renderTable({
+        data <- event_data("plotly_click",source = "diviMap")
+        
+        if(!is.null(data)) {
+            id <- data$customdata
+            print(id)
+            url <- str_c("https://www.intensivregister.de/api/public/stammdaten/krankenhausstandort/",
+                         id,
+                         "/meldebereiche")
+            fname <- str_c("json_data/meldebereiche/",id,".json")
+            mtime <- file.info(fname)$mtime
+            
+            if(checkFileCache(fname)) {
+                download.file(url,fname)
+            }
+            
+            json <- jsonlite::fromJSON(fname)
+            json %>% dplyr::select(bezeichnung, faelleEcmoJahr,bettenPlankapazitaet)
+        }
+    })
+    
+    output$overallPlotlyClick <- renderTable({
+        data <- event_data("plotly_click",source = "diviMap")
+        
+        if(!is.null(data)) {
+            id <- data$customdata
+            print(id)
+            url <- str_c("https://www.intensivregister.de/api/public/stammdaten/krankenhausstandort/",
+                         id,
+                         "/meldebereiche")
+            fname <- str_c("json_data/meldebereiche/",id,".json")
+            mtime <- file.info(fname)$mtime
+            
+            if(checkFileCache(fname)) {
+                download.file(url,fname)
+            }
+            
+            json <- jsonlite::fromJSON(fname)
+            json %>% dplyr::select(bezeichnung, faelleEcmoJahr,bettenPlankapazitaet)
+        }
     })
     
     output$stats <- renderUI({
@@ -173,6 +317,57 @@ server <- function(input, output, session) {
         HTML(paste(strName,strType,strArea,strPop,strStd,strBetten,strDate,sep="<br />"))
     })
     
+    output$overallStats <- renderUI({
+        krStats <- diviData %>% group_by(date) %>% summarise(sum_area = sum(area),
+                                          sum_pop = sum(pop_all),
+                                          sum_standorte = sum(anzahl_standorte),
+                                          sum_free_beds = sum(betten_frei),
+                                          sum_occup_beds = sum(betten_belegt))
+        HTML(
+            with(subset(krStats, date==max(date)),paste(
+                paste0("Deutschland"),
+                paste0("Fläche: ", sum_area,"km²"),
+                paste0("Einwohner: ", sum_pop),
+                paste0("Standorte: ",sum_standorte),
+                paste0("Betten: ",sum_free_beds,"/",sum_free_beds+sum_occup_beds),
+                sep="<br />"
+            ))
+        )
+    })
+    
+    output$overallBetten <- renderPlotly({
+        dt <- diviData %>% group_by(date) %>% summarise(sum_area = sum(area),
+                                                        sum_pop = sum(pop_all),
+                                                        sum_standorte = sum(anzahl_standorte),
+                                                        sum_free_beds = sum(betten_frei),
+                                                        sum_occup_beds = sum(betten_belegt),
+                                                        sum_faelle_covid_aktuell = sum(faelle_covid_aktuell),
+                                                        sum_faelle_covid_aktuell_beatmet = sum(faelle_covid_aktuell_beatmet))
+        plot_ly(dt, type="scatter",mode="lines") %>%
+            add_trace(x=~date, y=~sum_faelle_covid_aktuell, name="Aktuelle COVID Fälle") %>%
+            add_trace(x=~date,y=~sum_faelle_covid_aktuell_beatmet, name="Aktuelle COVID Fälle(beatmet)") %>%
+            plotly::layout(xaxis=list(title="Datum"),yaxis=list(title="Fälle"), hovermode="x unified")
+    })
+    
+    output$overallAuslastung <- renderPlotly({
+        dt <- diviData %>% group_by(date) %>% summarise(sum_betten_frei = sum(betten_frei),
+                                                        sum_betten_belegt = sum(betten_belegt),
+                                                        sum_faelle_covid_aktuell = sum(faelle_covid_aktuell),
+                                                        pct_covid = round(sum_faelle_covid_aktuell/sum_betten_belegt*100,1),
+                                                        auslastung = round(sum_betten_belegt/(sum_betten_frei+sum_betten_belegt)*100,1))
+        ylbl <- list(
+            title="Prozent"
+        )
+        plot_ly(dt, type="scatter",mode="lines") %>%
+            add_trace(x=~date,y=~pct_covid,name="Anteil COVID-19",
+                      hovertemplate = paste('Datum: %{x}',
+                                            '<br>Prozent: %{y}')) %>%
+            add_trace(x=~date,y=~auslastung,name="Auslastung",
+                      hovertemplate = paste('Datum: %{x}',
+                                            '<br>Prozent: %{y}')) %>%
+            plotly::layout(xaxis=list(title="Datum"),yaxis=ylbl, hovermode="x unified")
+    })
+    
     output$diviAuslastung <- renderPlotly({
         dt <- diviData %>% dplyr::filter(gemeinde==gemeinde()) %>%
             pivot_longer(cols=c(betten_frei,betten_belegt), names_to="parameter",values_to="value")
@@ -180,29 +375,29 @@ server <- function(input, output, session) {
             title="Prozent"
         )
         plot_ly(dt, type="scatter",mode="lines") %>%
-            add_lines(x=~date,y=~pct_covid,name="Anteil COVID-19",
+            add_trace(x=~date,y=~pct_covid,name="Anteil COVID-19",
                       hovertemplate = paste('Datum: %{x}',
                                             '<br>Prozent: %{y}')) %>%
-            add_lines(x=~date,y=~auslastung,name="Auslastung",
+            add_trace(x=~date,y=~auslastung,name="Auslastung",
                       hovertemplate = paste('Datum: %{x}',
                                             '<br>Prozent: %{y}')) %>%
-            plotly::layout(xaxis=list(title="Datum"),yaxis=ylbl)
+            plotly::layout(xaxis=list(title="Datum"),yaxis=ylbl, hovermode="x unified")
     })
     
     output$diviBetten <- renderPlotly({
         dt <- diviData %>% dplyr::filter(gemeinde==input$gemeinde)
         plot_ly(dt, type="scatter",mode="lines") %>%
-            add_lines(x=~date, y=~faelle_covid_aktuell, name="Aktuelle COVID Fälle") %>%
-            add_lines(x=~date,y=~faelle_covid_aktuell_beatmet, name="Aktuelle COVID Fälle(beatmet)") %>%
-            plotly::layout(xaxis=list(title="Datum"),yaxis=list(title="Fälle"))
+            add_trace(x=~date, y=~faelle_covid_aktuell, name="Aktuelle COVID Fälle") %>%
+            add_trace(x=~date,y=~faelle_covid_aktuell_beatmet, name="Aktuelle COVID Fälle(beatmet)") %>%
+            plotly::layout(xaxis=list(title="Datum"),yaxis=list(title="Fälle"), hovermode="x unified")
     })
     
     output$diviPop <- renderPlotly({
         dt <- diviData %>% dplyr::filter(gemeinde==input$gemeinde)
         plot_ly(dt, type="scatter",mode="lines") %>%
-            add_lines(x=~date, y=~covid_per_100k, name="COVID Fälle/100k Einwohner") %>%
-            add_lines(x=~date, y=~covid_per_100k_intubated, name="COVID Fälle/100k Einwohner(beatmet)") %>%
-            plotly::layout(xaxis=list(title="Datum"),yaxis=list(title="Fälle/100k Einwohner"))
+            add_trace(x=~date, y=~covid_per_100k, name="COVID Fälle/100k Einwohner") %>%
+            add_trace(x=~date, y=~covid_per_100k_intubated, name="COVID Fälle/100k Einwohner(beatmet)") %>%
+            plotly::layout(xaxis=list(title="Datum"),yaxis=list(title="Fälle/100k Einwohner"), hovermode="x unified")
     })
 }
 
