@@ -69,13 +69,22 @@ loadHospitalData <- function() {
     return(hospitals)
 }
 
-zips <- read.csv("zipcodes.de.csv",
-                 fileEncoding = "UTF-8",
-                 colClasses = c("character","character","character",
-                                "character","character","character","character",
-                                "character","character","numeric","numeric"))
+getReportingSections <- function(hospital) {
+    url <- str_c("https://www.intensivregister.de/api/public/stammdaten/krankenhausstandort/",
+                 hospital,
+                 "/meldebereiche")
+    fname <- str_c("json_data/meldebereiche/",hospital,".json")
+    mtime <- file.info(fname)$mtime
+    
+    if(checkFileCache(fname)) {
+        download.file(url,fname)
+    }
+    
+    json <- jsonlite::fromJSON(fname)
+    json %>% dplyr::select(bezeichnung, faelleEcmoJahr,bettenPlankapazitaet)
+}
 
-filteredZipcodes <- zips %>% distinct(zipcode,.keep_all = TRUE)
+filteredZipcodes <- readRDS("zips.rds")
 blNames <- c("Schleswig-Holstein","Hamburg","Niedersachsen","Bremen","Nordrhein-Westfalen","Hessen","Rheinland-Pfalz","Baden-Würrtemberg","Bayern","Saarland","Berlin","Brandenburg","Mecklenburg-Vorpommern","Sachsen","Sachsen-Anhalt","Thüringen")
 
 hospitals <- loadHospitalData()
@@ -90,60 +99,66 @@ choices <- setNames(gemeindeNamen$gemeinde,gemeindeNamen$name)
 
 mapBoxToken <- paste(readLines("./mapBoxToken"), collapse="")
 
-ui <- navbarPage(theme=shinytheme("darkly"),
-
+ui <- navbarPage(id = "page", theme=shinytheme("darkly"),
     # Application title
     title="DIVI Dashboard",
-    tabPanel("Gemeinden",
+    tabPanel(title="Gemeinden",value="gemeinde",
         fluidRow(
-            column(width = 4,selectInput("gemeinde",h3("Gemeinde auswählen"),
-                        choices = choices, selected = "5334", selectize = TRUE)),
-            column(width = 4, selectInput("mapStatus",h3("Farbkodierung Karte wählen"),
+            column(width = 4, uiOutput("filterUI"),
+            selectInput("mapStatus",h3("Farbkodierung Karte wählen"),
                                           choices = c("Low Care"="bettenStatus.statusLowCare",
                                                       "High Care"="bettenStatus.statusHighCare",
                                                       "ECMO"="bettenStatus.statusECMO"),
-                                          selected = "bettenStatus.statusHighCare", selectize = TRUE))
+                                          selected = "bettenStatus.statusHighCare", selectize = TRUE),
+            htmlOutput("stats")),
+            column(width = 8, tableOutput("plotlyClick"))
+        ),
+        # fluidRow(
+        #     column(width = 4, ),
+        #     
+        # ),
+        fluidRow(
+            column(width = 12, plotlyOutput("map",height = "600px"))
         ),
         fluidRow(
-            column(width = 4, htmlOutput("stats")),
-            column(width = 6, tableOutput("plotlyClick"))
-        ),
-        fluidRow(
-            plotlyOutput("map",height = "600px")
-        ),
-        fluidRow(
+            column(width=12,
             plotlyOutput("diviAuslastung"),
             plotlyOutput("diviBetten"),
-            plotlyOutput("diviPop")
+            plotlyOutput("diviPop"))
         ),
         fluidRow(
-            tags$a(href="https://www.divi.de/divi-intensivregister-tagesreport-archiv-csv?layout=table","Quelle: divi.de")
+            column(width = 12,
+            tags$a(href="https://www.divi.de/divi-intensivregister-tagesreport-archiv-csv?layout=table","Quelle: divi.de"))
         )
     ),
-    tabPanel("Deutschland",
-             fluidRow(selectInput("overallMapStatus",h3("Farbkodierung Karte wählen"),
+    tabPanel(title="Deutschland",value="deutschland",
+             fluidRow(
+                 column(width = 4,
+                    selectInput("overallMapStatus",h3("Farbkodierung Karte wählen"),
                                   choices = c("Low Care"="bettenStatus.statusLowCare",
                                               "High Care"="bettenStatus.statusHighCare",
                                               "ECMO"="bettenStatus.statusECMO"),
-                                  selected = "bettenStatus.statusHighCare", selectize = TRUE)),
-             fluidRow(
-                 column(width = 4, htmlOutput("overallStats")),
-                 column(width = 6, tableOutput("overallPlotlyClick"))
+                                  selected = "bettenStatus.statusHighCare", selectize = TRUE),
+                    htmlOutput("overallStats")
+                 ),
+                 column(width = 8, tableOutput("overallPlotlyClick"))
              ),
              fluidRow(
-                 plotlyOutput("deutschlandMap", height="720px")
+                 column(width = 12,
+                 plotlyOutput("deutschlandMap", height="720px"))
              ),
              fluidRow(
+                 column(width = 12,
                  plotlyOutput("overallBetten"),
                  plotlyOutput("overallAuslastung"),
-                 plotlyOutput("bundeslandBetten")
+                 plotlyOutput("bundeslandBetten"))
              )
     )
 )
 
 server <- function(input, output, session) {
-    gemeinde <- reactiveVal()
-    
+    gemeinde <- reactiveVal(value = 5334)
+    tab <- reactiveVal(value = "gemeinde")
     
     if(file.info("divi.rds")$mtime>divi.mtime) {
         print("divi.rds changed on disk, reloading")
@@ -155,33 +170,66 @@ server <- function(input, output, session) {
     if(checkFileCache("json_data/hospitals.json")) {
         hospitals <- loadHospitalData()
     }
+
+    observeEvent(getQueryString(session), {
+        qry <- getQueryString()
+        print(qry)
+        if(!is.null(qry$tab)) {
+            if(!is.na(qry$tab)) {
+                tab(qry$tab)
+            } else
+                tab("gemeinde")
+        } else
+            tab("gemeinde")
+        
+        if(!is.null(qry$gemeinde)) {
+            if(is.na(qry$gemeinde))
+                gemeinde(5334)
+            else
+                gemeinde(qry$gemeinde)
+        } else {
+            gemeinde(5334)
+        }
+    },priority = 5)
     
     observeEvent(input$gemeinde, {
         gemeinde(input$gemeinde)
     })
     
+    observeEvent(input$page, {
+        updateQueryString(paste0("?tab=",input$page,"&gemeinde=",gemeinde()),mode = "push",session = session)
+    })
+    
+    observeEvent(tab(), {
+        updateNavbarPage(session,inputId = "page",selected = tab())
+    })
+    
     observeEvent(gemeinde(),{
-        updateQueryString(paste0("?gemeinde=",gemeinde()),mode="replace")
+        updateQueryString(paste0("?tab=",tab(),"&gemeinde=",gemeinde()),mode = "push",session = session)
         updateSelectInput(session,"gemeinde",selected=gemeinde())
     })
     
-    observeEvent(getQueryString(session), {
-        if(length(getQueryString())>0) {
-            qry <- getQueryString()
-            print(qry$gemeinde)
-
-            if(!is.na(qry$gemeinde)) {
-                gemeinde(qry$gemeinde)
-            }
-        }
+    observeEvent(input$navigatedTo, {
+        restore(input$navigatedTo)
     })
     
+    output$filterUI <- renderUI({
+        selectInput("gemeinde",h3("Gemeinde auswählen"),
+                                     choices = choices, selected = isolate(gemeinde()), selectize = TRUE)
+    })
+
     output$desc <- renderUI({
         tags$a(href="https://www.divi.de/divi-intensivregister-tagesreport-archiv-csv?layout=table","Quelle: divi.de")
     })
     
-    output$hospitals <- renderDataTable({
-        hospitals %>% filter(community_code == gemeinde())
+    output$hospitals <- renderTable({
+        df <- hospitals %>% filter(community_code == gemeinde())
+        hs <- lapply(df$id, function(id) {
+            sections <- getReportingSections(id) %>% bind_rows()
+            sections$id <- id
+            return(sections)
+        }) %>% bind_rows() %>% group_by(id) %>%
+            summarise(bettenPlankapazitaet = sum(bettenPlankapazitaet),faelleEcmoJahr = sum(faelleEcmoJahr))
     })
     
     output$map <- renderPlotly({
@@ -270,19 +318,14 @@ server <- function(input, output, session) {
         
         if(!is.null(data)) {
             id <- data$customdata
-            print(id)
-            url <- str_c("https://www.intensivregister.de/api/public/stammdaten/krankenhausstandort/",
-                         id,
-                         "/meldebereiche")
-            fname <- str_c("json_data/meldebereiche/",id,".json")
-            mtime <- file.info(fname)$mtime
-            
-            if(checkFileCache(fname)) {
-                download.file(url,fname)
-            }
-            
-            json <- jsonlite::fromJSON(fname)
-            json %>% dplyr::select(bezeichnung, faelleEcmoJahr,bettenPlankapazitaet)
+            json <- getReportingSections(id) %>%
+                bind_rows() %>%
+                dplyr::select(bezeichnung, faelleEcmoJahr,bettenPlankapazitaet)
+            rbind(json,
+                  summarise(json, bezeichnung="Summe",
+                            faelleEcmoJahr = sum(faelleEcmoJahr),
+                            bettenPlankapazitaet = sum(bettenPlankapazitaet))) %>%
+                rename(Bereich=bezeichnung, `ECMO Fälle/Jahr`=faelleEcmoJahr, `Bettenplankapazität`=bettenPlankapazitaet)
         }
     })
     
@@ -291,19 +334,14 @@ server <- function(input, output, session) {
         
         if(!is.null(data)) {
             id <- data$customdata
-            print(id)
-            url <- str_c("https://www.intensivregister.de/api/public/stammdaten/krankenhausstandort/",
-                         id,
-                         "/meldebereiche")
-            fname <- str_c("json_data/meldebereiche/",id,".json")
-            mtime <- file.info(fname)$mtime
-            
-            if(checkFileCache(fname)) {
-                download.file(url,fname)
-            }
-            
-            json <- jsonlite::fromJSON(fname)
-            json %>% dplyr::select(bezeichnung, faelleEcmoJahr,bettenPlankapazitaet)
+            json <- getReportingSections(id) %>%
+                bind_rows() %>%
+                dplyr::select(bezeichnung, faelleEcmoJahr,bettenPlankapazitaet)
+            rbind(json,
+                  summarise(json, bezeichnung="Summe",
+                            faelleEcmoJahr = sum(faelleEcmoJahr),
+                            bettenPlankapazitaet = sum(bettenPlankapazitaet))) %>%
+                rename(Bereich=bezeichnung, `ECMO Fälle/Jahr`=faelleEcmoJahr, `Bettenplankapazität`=bettenPlankapazitaet)
         }
     })
     
@@ -407,7 +445,7 @@ server <- function(input, output, session) {
     })
     
     output$diviBetten <- renderPlotly({
-        dt <- diviData %>% dplyr::filter(gemeinde==input$gemeinde)
+        dt <- diviData %>% dplyr::filter(gemeinde==gemeinde())
         plot_ly(dt, type="scatter",mode="lines") %>%
             add_trace(x=~date, y=~faelle_covid_aktuell, name="Aktuelle COVID Fälle") %>%
             add_trace(x=~date,y=~faelle_covid_aktuell_beatmet, name="Aktuelle COVID Fälle(beatmet)") %>%
@@ -415,7 +453,7 @@ server <- function(input, output, session) {
     })
     
     output$diviPop <- renderPlotly({
-        dt <- diviData %>% dplyr::filter(gemeinde==input$gemeinde)
+        dt <- diviData %>% dplyr::filter(gemeinde==gemeinde())
         plot_ly(dt, type="scatter",mode="lines") %>%
             add_trace(x=~date, y=~covid_per_100k, name="COVID Fälle/100k Einwohner") %>%
             add_trace(x=~date, y=~covid_per_100k_intubated, name="COVID Fälle/100k Einwohner(beatmet)") %>%
@@ -424,4 +462,4 @@ server <- function(input, output, session) {
 }
 
 # Run the application 
-shinyApp(ui = ui, server = server)
+shinyApp(ui = ui, server = server,enableBookmarking = "url")
