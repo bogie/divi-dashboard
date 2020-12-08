@@ -234,9 +234,17 @@ server <- function(input, output, session) {
     
     output$map <- renderPlotly({
         df <- subset(hospitals,community_code==gemeinde())
-        center.lon <- median(df$krankenhausStandort.position.longitude)
-        center.lat <- median(df$krankenhausStandort.position.latitude)
+        center.lon <- (max(df$krankenhausStandort.position.longitude)+min(df$krankenhausStandort.position.longitude))/2
+        center.lat <- (max(df$krankenhausStandort.position.latitude)+min(df$krankenhausStandort.position.latitude))/2
         
+        
+        zoom_lat <- abs(abs(max(df$krankenhausStandort.position.latitude)) - abs(min(df$krankenhausStandort.position.latitude)))
+        zoom_long <- abs(abs(max(df$krankenhausStandort.position.longitude)) - abs(min(df$krankenhausStandort.position.longitude)))
+        
+        zoom_factor <- max(zoom_lat,zoom_long)
+        auto_zoom <- -1.35 * log(zoom_factor) + 8
+        
+        print(paste("Zoom: ",auto_zoom))
         print(paste("Center: ",center.lon, center.lat))
 
         fig <- df %>%
@@ -265,8 +273,10 @@ server <- function(input, output, session) {
             layout(
                 mapbox = list(
                     style = 'dark',
-                    zoom = 8,
-                    center = list(lon = center.lon, lat = center.lat))) 
+                    zoom = auto_zoom,
+                    center = list(lon = center.lon, lat = center.lat)
+                    )
+                )
         fig <- fig %>%
             config(mapboxAccessToken = mapBoxToken)
         
