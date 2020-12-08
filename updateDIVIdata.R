@@ -45,7 +45,16 @@ getLatestDIVIdata <- function() {
     write.csv(csv,file=str_c("./rawData/divi-intensivregister-",fname))
 }
 
-
+if(!file.exists("zips.rds")) {
+    zips <- read.csv("zipcodes.de.csv",
+                     fileEncoding = "UTF-8",
+                     colClasses = c("character","character","character",
+                                    "character","character","character","character",
+                                    "character","character","numeric","numeric"))
+    
+    filteredZipcodes <- zips %>% distinct(zipcode,.keep_all = TRUE)
+    saveRDS(filteredZipcodes,"zips.rds")
+}
 kreise <- read.xlsx("04-kreise.xlsx",sheet = 2, startRow = 6)
 colnames(kreise) <- c("key","type","name","NUTS3","area","pop_all","pop_male","pop_female","pop_per_km2")
 kreise$key <- as.numeric(kreise$key)
