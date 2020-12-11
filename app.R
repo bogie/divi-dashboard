@@ -90,6 +90,7 @@ blNames <- c("Schleswig-Holstein","Hamburg","Niedersachsen","Bremen","Nordrhein-
 hospitals <- loadHospitalData()
 
 diviData <- readRDS("divi.rds")
+rkiData <- readRDS("rkiData/rki.rds")
 gemeindeNamen <- readRDS("gemeinden.rds")
 diviData <- fix.encoding(diviData)
 gemeindeNamen <- fix.encoding(gemeindeNamen)
@@ -122,9 +123,11 @@ ui <- navbarPage(id = "page", theme=shinytheme("darkly"),
         ),
         fluidRow(
             column(width=12,
-            plotlyOutput("diviAuslastung"),
-            plotlyOutput("diviBetten"),
-            plotlyOutput("diviPop"))
+                   plotlyOutput("rkiPlot"),
+                   plotlyOutput("diviAuslastung"),
+                   plotlyOutput("diviBetten"),
+                   plotlyOutput("diviPop")
+            )
         ),
         fluidRow(
             column(width = 12,
@@ -165,6 +168,10 @@ server <- function(input, output, session) {
         diviData <- readRDS("divi.rds")
         gemeindeNamen <- readRDS("gemeinden.rds")
         divi.mtime <- file.info("divi.rds")$mtime
+    }
+    
+    if(checkFileCache("rkiData/rki.rds",cacheTime = hours(12))) {
+        source("UpdateRKI.R")
     }
 
     if(checkFileCache("json_data/hospitals.json")) {
@@ -383,6 +390,14 @@ server <- function(input, output, session) {
                 sep="<br />"
             ))
         )
+    })
+    
+    output$rkiPlot <- renderPlotly({
+        rkiData %>% filter(IdLandkreis==gemeinde()) %>%
+            group_by(Meldedatum,Geschlecht) %>% summarise(n=sum(AnzahlFall)) %>%
+            group_by(Geschlecht) %>% arrange(Meldedatum) %>% summarise(Meldedatum = Meldedatum, n=cumsum(n)) %>%
+            plot_ly(type="scatter",mode="lines",x=~Meldedatum,y=~n,color=~Geschlecht, hovertemplate = paste('Datum: %{x}',
+                                                                                                            '<br>Fälle: %{y}'))
     })
     
     output$overallBetten <- renderPlotly({
