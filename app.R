@@ -131,7 +131,7 @@ ui <- navbarPage(id = "page", theme=shinytheme("darkly"),
         ),
         fluidRow(
             column(width = 12,
-            tags$a(href="https://www.divi.de/divi-intensivregister-tagesreport-archiv-csv?layout=table","Quelle: divi.de"))
+            uiOutput("desc"))
         )
     ),
     tabPanel(title="Deutschland",value="deutschland",
@@ -226,7 +226,15 @@ server <- function(input, output, session) {
     })
 
     output$desc <- renderUI({
-        tags$a(href="https://www.divi.de/divi-intensivregister-tagesreport-archiv-csv?layout=table","Quelle: divi.de")
+        tagList(
+            tags$text("Quellen: "),
+            tags$br(),
+            tags$a(href="https://www.divi.de/divi-intensivregister-tagesreport-archiv-csv?layout=table","Deutsche Interdisziplinäre Vereinigung für Intensiv- und Notfallmedizin"),
+            tags$br(),
+            tags$a(href="https://www.rki.de/DE/Home/homepage_node.html","Robert Koch-Institut"),
+            tags$br(),
+            tags$a(href="https://www.bkg.bund.de/DE/Home/home.html","Bundesamt für Kartographie und Geodäsie")
+        )
     })
     
     output$hospitals <- renderTable({
@@ -397,7 +405,8 @@ server <- function(input, output, session) {
             group_by(Meldedatum,Geschlecht) %>% summarise(n=sum(AnzahlFall)) %>%
             group_by(Geschlecht) %>% arrange(Meldedatum) %>% summarise(Meldedatum = Meldedatum, n=cumsum(n)) %>%
             plot_ly(type="scatter",mode="lines",x=~Meldedatum,y=~n,color=~Geschlecht, hovertemplate = paste('Datum: %{x}',
-                                                                                                            '<br>Fälle: %{y}'))
+                                                                                                            '<br>Fälle: %{y}')) %>%
+            plotly::layout(yaxis=list(title="Fallzahl"),hovermode="x unified")
     })
     
     output$overallBetten <- renderPlotly({
