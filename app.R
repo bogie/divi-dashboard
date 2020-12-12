@@ -95,6 +95,7 @@ gemeindeNamen <- readRDS("gemeinden.rds")
 diviData <- fix.encoding(diviData)
 gemeindeNamen <- fix.encoding(gemeindeNamen)
 
+rki.mtime <- file.info("rkiData/rki.rds")$mtime
 divi.mtime <- file.info("divi.rds")$mtime
 choices <- setNames(gemeindeNamen$gemeinde,gemeindeNamen$name)
 
@@ -119,7 +120,9 @@ ui <- navbarPage(id = "page", theme=shinytheme("darkly"),
         #     
         # ),
         fluidRow(
-            column(width = 12, plotlyOutput("map",height = "600px"))
+            column(width = 6, plotlyOutput("map",height = "600px")),
+            column(width = 6,
+                   plotlyOutput("rkiAgePlot",height = "600px"))
         ),
         fluidRow(
             column(width=12,
@@ -170,11 +173,14 @@ server <- function(input, output, session) {
         divi.mtime <- file.info("divi.rds")$mtime
     }
     
-    if(checkFileCache("rkiData/rki.rds",cacheTime = hours(12))) {
-        source("UpdateRKI.R")
+    if(file.info("rkiData/rki.rds")$mtime>rki.mtime) {
+        print("divi.rds changed on disk, reloading")
+        rkiData <- readRDS("rkiData/rki.rds")
+        rki.mtime <- file.info("rkiData/rki.rds")$mtime
     }
 
     if(checkFileCache("json_data/hospitals.json")) {
+        print("checkFileCache true for hospitals.json")
         hospitals <- loadHospitalData()
     }
 
@@ -402,11 +408,86 @@ server <- function(input, output, session) {
     
     output$rkiPlot <- renderPlotly({
         rkiData %>% filter(IdLandkreis==gemeinde()) %>%
-            group_by(Meldedatum,Geschlecht) %>% summarise(n=sum(AnzahlFall)) %>%
-            group_by(Geschlecht) %>% arrange(Meldedatum) %>% summarise(Meldedatum = Meldedatum, n=cumsum(n)) %>%
-            plot_ly(type="scatter",mode="lines",x=~Meldedatum,y=~n,color=~Geschlecht, hovertemplate = paste('Datum: %{x}',
-                                                                                                            '<br>Fälle: %{y}')) %>%
-            plotly::layout(yaxis=list(title="Fallzahl"),hovermode="x unified")
+            group_by(Refdatum) %>%
+            summarise(cases = sum(AnzahlFall), deaths = sum(AnzahlTodesfall)) %>%
+            arrange(Refdatum) %>%
+            summarise(Refdatum = Refdatum, cases=cumsum(cases), deaths = cumsum(deaths)) %>%
+            plot_ly(type="scatter",mode="lines") %>%
+            add_trace(x=~Refdatum,
+                      y=~cases,
+                      hovertemplate = paste0('Datum: %{x}','<br>Fälle: %{y}'),
+                      name="Gesamte Fälle",
+                      yaxis="y",
+                      line=list(color=toRGB("black"))) %>%
+            add_trace(x=~Refdatum,
+                      y=~deaths,
+                      hovertemplate = paste0('Datum: %{x}','<br>Fälle: %{y}'),
+                      name="Tote",
+                      yaxis="y2",
+                      line=list(color=toRGB("red"))) %>%
+            plotly::layout(
+                xaxis=list(title="Datum"),
+                yaxis=list(title="Fallzahl",side="left"),
+                yaxis2=list(title="Tote",overlaying="y",side="right"),
+                hovermode="x unified")
+    })
+    
+    output$rkiAgePlot <- renderPlotly({
+        rkiData %>% filter(IdLandkreis==gemeinde()) %>%
+            group_by(Refdatum,Altersgruppe) %>%
+            summarise(totalCases=sum(AnzahlFall), deaths = sum(AnzahlTodesfall)) %>%
+            arrange(Refdatum) %>% group_by(Altersgruppe)%>%
+            summarise(Refdatum = Refdatum,
+                      Altersgruppe=Altersgruppe,
+                      totalCases=cumsum(totalCases),
+                      deaths = cumsum(deaths)) %>%
+            plot_ly(type="scatter",mode="lines") %>%
+            add_trace(x=~Refdatum,
+                      y=~totalCases,
+                      color=~Altersgruppe,
+                      text=~Altersgruppe,
+                      legendgroup="Fälle",
+                      hovertemplate=paste(
+                          'Datum: %{x}',
+                          'Fälle: %{y}',
+                          'Altersgruppe: %{text}',
+                          sep = "<br>"
+                      )) %>%
+            add_trace(x=~Refdatum,
+                      y=~deaths,
+                      color=~Altersgruppe,
+                      text=~Altersgruppe,
+                      legendgroup="Todesfälle",
+                      line=list(dash="dash"),
+                      yaxis="y2",
+                      hovertemplate=paste('Datum: %{x}',
+                                          'Todesfälle: %{y}',
+                                          'Altersgruppe: %{text}',
+                                          sep = "<br>")
+                      ) %>%
+            group_by(Altersgruppe) %>%
+            plotly::layout(
+                xaxis=list(title="Datum"),
+                yaxis=list(title="Fallzahl",side="left"),
+                yaxis2=list(title="Tote",overlaying="y",side="right")
+                           )
+            # plotly::layout(
+            #     scene = list(
+            #         zaxis=list(title="Fälle"),
+            #         camera = list(
+            #             eye = list(
+            #                 x=0.2,
+            #                 y=-2.1,
+            #                 z=0.3
+            #             ),
+            #             center = list(
+            #                 x=0,
+            #                 y=0,
+            #                 z=-0.2
+            #             )
+            #         )
+            #         )
+            #     )
     })
     
     output$overallBetten <- renderPlotly({
