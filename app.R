@@ -409,22 +409,28 @@ server <- function(input, output, session) {
     output$rkiPlot <- renderPlotly({
         rkiData %>% filter(IdLandkreis==gemeinde()) %>%
             group_by(Refdatum) %>%
-            summarise(cases = sum(AnzahlFall), deaths = sum(AnzahlTodesfall)) %>%
-            arrange(Refdatum) %>%
-            summarise(Refdatum = Refdatum, cases=cumsum(cases), deaths = cumsum(deaths)) %>%
-            plot_ly(type="scatter",mode="lines") %>%
+            summarise(cases=sum(cases),deaths=sum(deaths)) %>%
+            ungroup() %>% arrange(Refdatum) %>%
+            mutate(cumCases=cumsum(cases),cumDeaths=cumsum(deaths)) %>%
+        plot_ly(type="scatter",mode="lines") %>%
             add_trace(x=~Refdatum,
-                      y=~cases,
+                      y=~cumCases,
                       hovertemplate = paste0('Datum: %{x}','<br>Fälle: %{y}'),
                       name="Gesamte Fälle",
                       yaxis="y",
                       line=list(color=toRGB("black"))) %>%
             add_trace(x=~Refdatum,
-                      y=~deaths,
+                      y=~cumDeaths,
                       hovertemplate = paste0('Datum: %{x}','<br>Fälle: %{y}'),
                       name="Tote",
                       yaxis="y2",
                       line=list(color=toRGB("red"))) %>%
+            add_trace(x=~date,
+                      y=~faelle_covid_aktuell,
+                      data=filter(diviData,gemeinde==gemeinde()),
+                      name="Beatmete COVID Patienten",
+                      line=list(color=toRGB("orange")),
+                      yaxis="y2") %>%
             plotly::layout(
                 xaxis=list(title="Datum"),
                 yaxis=list(title="Fallzahl",side="left"),
@@ -434,16 +440,9 @@ server <- function(input, output, session) {
     
     output$rkiAgePlot <- renderPlotly({
         rkiData %>% filter(IdLandkreis==gemeinde()) %>%
-            group_by(Refdatum,Altersgruppe) %>%
-            summarise(totalCases=sum(AnzahlFall), deaths = sum(AnzahlTodesfall)) %>%
-            arrange(Refdatum) %>% group_by(Altersgruppe)%>%
-            summarise(Refdatum = Refdatum,
-                      Altersgruppe=Altersgruppe,
-                      totalCases=cumsum(totalCases),
-                      deaths = cumsum(deaths)) %>%
             plot_ly(type="scatter",mode="lines") %>%
             add_trace(x=~Refdatum,
-                      y=~totalCases,
+                      y=~cumCases,
                       color=~Altersgruppe,
                       text=~Altersgruppe,
                       legendgroup="Fälle",
@@ -454,7 +453,7 @@ server <- function(input, output, session) {
                           sep = "<br>"
                       )) %>%
             add_trace(x=~Refdatum,
-                      y=~deaths,
+                      y=~cumDeaths,
                       color=~Altersgruppe,
                       text=~Altersgruppe,
                       legendgroup="Todesfälle",
@@ -491,11 +490,11 @@ server <- function(input, output, session) {
     })
     
     output$overallBetten <- renderPlotly({
-        dt <- diviData %>% group_by(date) %>% summarise(sum_area = sum(area),
-                                                        sum_pop = sum(pop_all),
-                                                        sum_standorte = sum(anzahl_standorte),
-                                                        sum_free_beds = sum(betten_frei),
-                                                        sum_occup_beds = sum(betten_belegt),
+        dt <- diviData %>% group_by(date) %>% summarise(#sum_area = sum(area),
+                                                        #sum_pop = sum(pop_all),
+                                                        #sum_standorte = sum(anzahl_standorte),
+                                                        #sum_free_beds = sum(betten_frei),
+                                                        #sum_occup_beds = sum(betten_belegt),
                                                         sum_faelle_covid_aktuell = sum(faelle_covid_aktuell),
                                                         sum_faelle_covid_aktuell_beatmet = sum(faelle_covid_aktuell_beatmet))
         plot_ly(dt, type="scatter",mode="lines") %>%
@@ -506,13 +505,14 @@ server <- function(input, output, session) {
     
     output$bundeslandBetten <- renderPlotly({
         dt <- diviData %>% filter(!is.na(bundesland)) %>%
-            group_by(date,bundesland) %>% summarise(sum_area = sum(area),
-                                                        sum_pop = sum(pop_all),
-                                                        sum_standorte = sum(anzahl_standorte),
-                                                        sum_free_beds = sum(betten_frei),
-                                                        sum_occup_beds = sum(betten_belegt),
-                                                        sum_faelle_covid_aktuell = sum(faelle_covid_aktuell),
-                                                        sum_faelle_covid_aktuell_beatmet = sum(faelle_covid_aktuell_beatmet))
+            group_by(date,bundesland) %>% summarise(#sum_area = sum(area),
+                                                        #sum_pop = sum(pop_all),
+                                                        #sum_standorte = sum(anzahl_standorte),
+                                                        #sum_free_beds = sum(betten_frei),
+                                                        #sum_occup_beds = sum(betten_belegt),
+                                                        sum_faelle_covid_aktuell = sum(faelle_covid_aktuell)
+                                                        #sum_faelle_covid_aktuell_beatmet = sum(faelle_covid_aktuell_beatmet)
+                                                        )
         plot_ly(dt,
                 x=~date,
                 y=~sum_faelle_covid_aktuell,

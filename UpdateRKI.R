@@ -11,4 +11,32 @@ rkiData[rkiData$IdLandkreis %in% c(11001:11012),]$IdLandkreis <- 11000
 rkiData[rkiData$IdLandkreis == 9473,]$IdLandkreis <- 9463
 rkiData[rkiData$IdLandkreis == 9573,]$IdLandkreis <- 9563
 
+rkiData <- rkiData %>%
+    group_by(IdBundesland,IdLandkreis,Refdatum, Altersgruppe) %>%
+    summarise(cases=sum(AnzahlFall), deaths=sum(AnzahlTodesfall)) %>%
+    group_by(IdBundesland,IdLandkreis, Altersgruppe) %>%
+    mutate(cumCases=cumsum(cases),cumDeaths=cumsum(deaths)) %>% ungroup()
+
+# test %>%
+#     filter(IdLandkreis==5334) %>% group_by(Refdatum) %>% summarise(cases=sum(cases),deaths=sum(deaths)) %>% ungroup() %>% arrange(Refdatum) %>%
+#     mutate(cumCases=cumsum(cases),cumDeaths=cumsum(deaths)) %>%
+#     plot_ly(type="scatter",mode="lines") %>%
+#     add_trace(x=~Refdatum,
+#               y=~cumCases,
+#               hovertemplate = paste0('Datum: %{x}','<br>Fälle: %{y}'),
+#               name="Gesamte Fälle",
+#               yaxis="y",
+#               line=list(color=toRGB("black"))) %>%
+#     add_trace(x=~Refdatum,
+#               y=~cumDeaths,
+#               hovertemplate = paste0('Datum: %{x}','<br>Fälle: %{y}'),
+#               name="Tote",
+#               yaxis="y2",
+#               line=list(color=toRGB("red"))) %>%
+#     plotly::layout(
+#         xaxis=list(title="Datum"),
+#         yaxis=list(title="Fallzahl",side="left"),
+#         yaxis2=list(title="Tote",overlaying="y",side="right"),
+#         hovermode="x unified")
+
 saveRDS(rkiData,file="rkiData/rki.rds")
