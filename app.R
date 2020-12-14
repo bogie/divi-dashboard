@@ -128,8 +128,8 @@ ui <- navbarPage(id = "page", theme=shinytheme("darkly"),
             column(width=12,
                    plotlyOutput("rkiPlot"),
                    plotlyOutput("diviAuslastung"),
-                   plotlyOutput("diviBetten"),
-                   plotlyOutput("diviPop")
+                   #plotlyOutput("diviBetten"),
+                   #plotlyOutput("diviPop")
             )
         ),
         fluidRow(
@@ -428,7 +428,15 @@ server <- function(input, output, session) {
             add_trace(x=~date,
                       y=~faelle_covid_aktuell,
                       data=filter(diviData,gemeinde==gemeinde()),
-                      name="Beatmete COVID Patienten",
+                      name="COVID Patienten\n(auf Intensivstation)",
+                      hovertemplate = paste0('Datum: %{x}','<br>Fälle: %{y}'),
+                      line=list(color=toRGB("darkgreen")),
+                      yaxis="y2") %>%
+            add_trace(x=~date,
+                      y=~faelle_covid_aktuell_beatmet,
+                      data=filter(diviData,gemeinde==gemeinde()),
+                      name="COVID Patienten\n(beatmet auf Intensiv)",
+                      hovertemplate = paste0('Datum: %{x}','<br>Fälle: %{y}'),
                       line=list(color=toRGB("orange")),
                       yaxis="y2") %>%
             plotly::layout(
