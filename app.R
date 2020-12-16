@@ -103,7 +103,12 @@ mapBoxToken <- paste(readLines("./mapBoxToken"), collapse="")
 
 ui <- navbarPage(id = "page", theme=shinytheme("darkly"),
     # Application title
-    title="DIVI Dashboard",
+    title="COVID-19 Dashboard",
+    tags$head(
+        tags$meta(name="author",content="Bojan Hartmann"),
+        tags$meta(name="keywords", content="COVID-19,DIVI,RKI,SARS-CoV-2,Dashboard"),
+        tags$meta(name="description",content="Inoffizielles COVID-19 Dashboard basierend auf DIVI und RKI Daten")
+    ),
     tabPanel(title="Gemeinden",value="gemeinde",
         fluidRow(
             column(width = 4, uiOutput("filterUI"),
