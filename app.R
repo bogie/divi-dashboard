@@ -120,12 +120,12 @@ ui <- navbarPage(id = "page", theme=shinytheme("darkly"),
         #     
         # ),
         fluidRow(
-            column(width = 6, plotlyOutput("map",height = "600px")),
-            column(width = 6,
-                   plotlyOutput("rkiAgePlot",height = "600px"))
+            column(width = 8, plotlyOutput("map",height = "720px")),
+            column(width = 4, uiOutput("info"))
         ),
         fluidRow(
             column(width=12,
+                   plotlyOutput("rkiAgePlot"),
                    plotlyOutput("rkiPlot"),
                    plotlyOutput("diviAuslastung"),
                    #plotlyOutput("diviBetten"),
@@ -194,14 +194,17 @@ server <- function(input, output, session) {
                 tab("gemeinde")
         } else
             tab("gemeinde")
-        
-        if(!is.null(qry$gemeinde)) {
-            if(is.na(qry$gemeinde))
+        if(tab() == "gemeinde") {
+            if(!is.null(qry$gemeinde)) {
+                if(is.na(qry$gemeinde))
+                    gemeinde(5334)
+                else
+                    gemeinde(qry$gemeinde)
+            } else {
                 gemeinde(5334)
-            else
-                gemeinde(qry$gemeinde)
+            }
         } else {
-            gemeinde(5334)
+            
         }
     },priority = 5)
     
@@ -210,7 +213,11 @@ server <- function(input, output, session) {
     })
     
     observeEvent(input$page, {
-        updateQueryString(paste0("?tab=",input$page,"&gemeinde=",gemeinde()),mode = "push",session = session)
+        if(input$page == "gemeinde")
+            updateQueryString(paste0("?tab=",input$page,"&gemeinde=",gemeinde()),mode = "push",session = session)
+        else if(input$page == "deutschland") {
+            updateQueryString(paste0("?tab=",input$page),mode="push",session=session)
+        }
     })
     
     observeEvent(tab(), {
@@ -240,6 +247,19 @@ server <- function(input, output, session) {
             tags$a(href="https://www.rki.de/DE/Home/homepage_node.html","Robert Koch-Institut"),
             tags$br(),
             tags$a(href="https://www.bkg.bund.de/DE/Home/home.html","Bundesamt für Kartographie und Geodäsie")
+        )
+    })
+    
+    output$info <- renderUI({
+        tagList(
+            tags$text("Dies ist ein inoffizielles Dashboard das die Daten der DIVI und des RKI kombiniert anzeigt."),
+            tags$br(),
+            tags$ul(),
+            tags$li("Die Darstellung der DIVI Daten basiert auf dem Meldedatum, die Fallzahlen werden jeden Tag gegen 13:30 Uhr aktualisiert, das Auslastungsbarometer stündlich."),
+            tags$li("Im Gegensatz dazu wird bei der Darstellung der RKI Daten das Referenzdatum verwendet, dabei handelt es sich sofern bekannt um den Krankheitsbeginn, ansonsten das Meldedatum."),
+            tags$li("Die Daten des RKI werden nachts gegen 03:30 Uhr aktualisiert."),
+            tags$ul(),
+            tags$text("Das Auslastungsbarometer ist eine subjektive Einschätzung der Meldenden Stationen, das anhand des Arbeitsaufkommens und Personalverfügbarkeit zwischen, verfügbar, begrenzt und nicht verfügbar unterscheidet")
         )
     })
     
@@ -296,7 +316,9 @@ server <- function(input, output, session) {
                     style = 'dark',
                     zoom = auto_zoom,
                     center = list(lon = center.lon, lat = center.lat)
-                    )
+                    ),
+                legend = list(orientation = 'h'),
+                margin=list(l=30,r=30,t=30,b=30)
                 )
         fig <- fig %>%
             config(mapboxAccessToken = mapBoxToken)
@@ -337,7 +359,9 @@ server <- function(input, output, session) {
                 mapbox = list(
                     style = 'dark',
                     zoom = 5,
-                    center = list(lon = center.lon, lat = center.lat))) 
+                    center = list(lon = center.lon, lat = center.lat)),
+                legend = list(orientation = 'h')
+                ) 
         fig <- fig %>%
             config(mapboxAccessToken = mapBoxToken)
         
@@ -443,7 +467,8 @@ server <- function(input, output, session) {
                 xaxis=list(title="Datum"),
                 yaxis=list(title="Fallzahl",side="left"),
                 yaxis2=list(title="Tote",overlaying="y",side="right"),
-                hovermode="x unified")
+                hovermode="x unified",
+                legend = list(orientation = 'h'))
     })
     
     output$rkiAgePlot <- renderPlotly({
@@ -476,7 +501,9 @@ server <- function(input, output, session) {
             plotly::layout(
                 xaxis=list(title="Datum"),
                 yaxis=list(title="Fallzahl",side="left"),
-                yaxis2=list(title="Tote",overlaying="y",side="right")
+                yaxis2=list(title="Tote",overlaying="y",side="right"),
+                legend=list(x=0,y=1,
+                            margin=list(l=30,r=30,t=30,b=30))
                            )
             # plotly::layout(
             #     scene = list(
@@ -548,7 +575,10 @@ server <- function(input, output, session) {
             add_trace(x=~date,y=~auslastung,name="Auslastung",
                       hovertemplate = paste('Datum: %{x}',
                                             '<br>Prozent: %{y}')) %>%
-            plotly::layout(xaxis=list(title="Datum"),yaxis=ylbl, hovermode="x unified")
+            plotly::layout(xaxis=list(title="Datum"),
+                           yaxis=ylbl,
+                           hovermode="x unified",
+                           legend = list(orientation = 'h'))
     })
     
     output$diviAuslastung <- renderPlotly({
@@ -564,7 +594,10 @@ server <- function(input, output, session) {
             add_trace(x=~date,y=~auslastung,name="Auslastung",
                       hovertemplate = paste('Datum: %{x}',
                                             '<br>Prozent: %{y}')) %>%
-            plotly::layout(xaxis=list(title="Datum"),yaxis=ylbl, hovermode="x unified")
+            plotly::layout(xaxis=list(title="Datum"),
+                           yaxis=ylbl,
+                           hovermode="x unified",
+                           legend = list(orientation = 'h'))
     })
     
     output$diviBetten <- renderPlotly({
