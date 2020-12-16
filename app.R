@@ -118,7 +118,10 @@ ui <- navbarPage(id = "page", theme=shinytheme("darkly"),
                                                       "ECMO"="bettenStatus.statusECMO"),
                                           selected = "bettenStatus.statusHighCare", selectize = TRUE),
             htmlOutput("stats")),
-            column(width = 8, tableOutput("plotlyClick"))
+            column(width = 8, 
+                   #tableOutput("plotlyClick")
+                   uiOutput("hospitalDetailUI")
+                   )
         ),
         # fluidRow(
         #     column(width = 4, ),
@@ -152,7 +155,10 @@ ui <- navbarPage(id = "page", theme=shinytheme("darkly"),
                                   selected = "bettenStatus.statusHighCare", selectize = TRUE),
                     htmlOutput("overallStats")
                  ),
-                 column(width = 8, tableOutput("overallPlotlyClick"))
+                 column(width = 8, 
+                        #tableOutput("overallPlotlyClick")
+                        uiOutput("overallHospitalDetailUI")
+                        )
              ),
              fluidRow(
                  column(width = 12,
@@ -241,6 +247,26 @@ server <- function(input, output, session) {
     output$filterUI <- renderUI({
         selectInput("gemeinde",h3("Gemeinde auswählen"),
                                      choices = choices, selected = isolate(gemeinde()), selectize = TRUE)
+    })
+    
+    output$hospitalDetailUI <- renderUI({
+        data <- event_data("plotly_click",source = "diviMap")
+        
+        if(!is.null(data)) {
+            tableOutput("plotlyClick")
+        } else {
+            tags$text("Klicken Sie auf ein Krankenhaus auf der Karte für eine Detailansicht.")
+        }
+    })
+    
+    output$overallHospitalDetailUI <- renderUI({
+        data <- event_data("plotly_click",source = "deutschlandMap")
+        
+        if(!is.null(data)) {
+            tableOutput("overallPlotlyClick")
+        } else {
+            tags$text("Klicken Sie auf ein Krankenhaus auf der Karte für eine Detailansicht.")
+        }
     })
 
     output$desc <- renderUI({
@@ -347,7 +373,7 @@ server <- function(input, output, session) {
                 colors = c("green","orange","red","grey"),
                 type = 'scattermapbox',
                 hoverinfo="text",
-                source = "diviMap",
+                source = "deutschlandMap",
                 hovertext = ~paste(
                     paste0("<b>",krankenhausStandort.bezeichnung,"</b>"),
                     paste0("Address: ",krankenhausStandort.strasse," ",
@@ -390,7 +416,7 @@ server <- function(input, output, session) {
     })
     
     output$overallPlotlyClick <- renderTable({
-        data <- event_data("plotly_click",source = "diviMap")
+        data <- event_data("plotly_click",source = "deutschlandMap")
         
         if(!is.null(data)) {
             id <- data$customdata
