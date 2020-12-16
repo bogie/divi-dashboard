@@ -107,7 +107,12 @@ ui <- navbarPage(id = "page", theme=shinytheme("darkly"),
     tags$head(
         tags$meta(name="author",content="Bojan Hartmann"),
         tags$meta(name="keywords", content="COVID-19,DIVI,RKI,SARS-CoV-2,Dashboard"),
-        tags$meta(name="description",content="Inoffizielles COVID-19 Dashboard basierend auf DIVI und RKI Daten")
+        tags$meta(name="description",content="Inoffizielles COVID-19 Dashboard basierend auf DIVI und RKI Daten"),
+        tags$meta(property="og:title",content="COVID-19 Dashboard - shiny.bawki.de"),
+        tags$meta(property="og:type", content="website"),
+        tags$meta(property="og:url",content="https://shiny.bawki.de/"),
+        tags$meta(property="og:locale",content="de_DE"),
+        tags$meta(property="og:description",content="Inoffizielles COVID-19 Dashboard basierend auf DIVI und RKI Daten")
     ),
     tabPanel(title="Gemeinden",value="gemeinde",
         fluidRow(
