@@ -17,6 +17,7 @@ library(tidyverse)
 library(openxlsx)
 library(shinythemes)
 library(jsonlite)
+library(forecast)
 
 Sys.setlocale("LC_CTYPE","german")
 if(!file.exists("divi.rds") || !file.exists("gemeinden.rds")) {
@@ -174,6 +175,18 @@ ui <- navbarPage(id = "page", theme=shinytheme("darkly"),
                  plotlyOutput("overallBetten"),
                  plotlyOutput("overallAuslastung"),
                  plotlyOutput("bundeslandBetten"))
+             ),
+             fluidRow(
+                 column(width=12,
+                        plotlyOutput("predictICU")
+                        )
+             )
+    ),
+    tabPanel(title="Impressum",value="impressum",
+             fluidRow(
+                 column(width=12,
+                 uiOutput("impressum")
+                 )
              )
     )
 )
@@ -231,7 +244,7 @@ server <- function(input, output, session) {
     observeEvent(input$page, {
         if(input$page == "gemeinde")
             updateQueryString(paste0("?tab=",input$page,"&gemeinde=",gemeinde()),mode = "push",session = session)
-        else if(input$page == "deutschland") {
+        else if(input$page %in% c("deutschland","impressum")) {
             updateQueryString(paste0("?tab=",input$page),mode="push",session=session)
         }
     })
@@ -252,6 +265,50 @@ server <- function(input, output, session) {
     output$filterUI <- renderUI({
         selectInput("gemeinde",h3("Gemeinde auswählen"),
                                      choices = choices, selected = isolate(gemeinde()), selectize = TRUE)
+    })
+    
+    output$predictICU <- renderPlotly({
+        forecast_length <- 10
+        germany <- diviData %>%
+            group_by(date) %>%
+            summarise(sum_cov = sum(faelle_covid_aktuell), sum_intub = sum(faelle_covid_aktuell_beatmet)) %>%
+            ungroup()
+        fcVal <- tsclean(germany$sum_intub) %>% auto.arima(.) %>% forecast(.,forecast_length)
+        cov_forecast <- tsclean(germany$sum_cov) %>% auto.arima(.) %>% forecast(.,forecast_length)
+        
+        fore.dates <- seq(as.POSIXct(germany$date[length(germany$date)], origin='1970-01-01'),
+                          by=germany$date[length(germany$date)] - germany$date[length(germany$date)-1], len=forecast_length)
+        
+        
+        plot_ly(mode="lines") %>%
+            add_lines(x=as.POSIXct(germany$date, origin='1970-01-01'),
+                      y= germany$sum_intub,
+                      name="Aktuelle COVID Fälle(beatmet)",
+                      color=I("green"),
+                      marker=list(mode="lines")) %>%
+            add_lines(x=fore.dates,
+                      y=fcVal$mean,
+                      color=I("blue"),
+                      name="Aktuelle COVID Fälle(beatmet) Vorhersage") %>%
+            add_ribbons(x=fore.dates,
+                        ymin=fcVal$lower[,2],
+                        ymax=fcVal$upper[,2],
+                        name="95% confidence",
+                        color = I("gray95")) %>%
+            add_lines(x=as.POSIXct(germany$date, origin='1970-01-01'),
+                      y= germany$sum_cov,
+                      name="Aktuelle COVID Fälle",
+                      color=I("orange"),
+                      marker=list(mode="lines")) %>%
+            add_lines(x=fore.dates,
+                      y=cov_forecast$mean,
+                      color=I("yellow"),
+                      name="Aktuelle COVID Fälle Vorhersage") %>%
+            add_ribbons(x=fore.dates,
+                        ymin=cov_forecast$lower[,2],
+                        ymax=cov_forecast$upper[,2],
+                        name="Aktuelle COVID Fälle 95% confidence",
+                        color = I("gray95"))
     })
     
     output$hospitalDetailUI <- renderUI({
@@ -296,6 +353,20 @@ server <- function(input, output, session) {
             tags$li("Die Daten des RKI werden nachts gegen 03:30 Uhr aktualisiert."),
             tags$ul(),
             tags$text("Das Auslastungsbarometer ist eine subjektive Einschätzung der Meldenden Stationen, das anhand des Arbeitsaufkommens und Personalverfügbarkeit zwischen, verfügbar, begrenzt und nicht verfügbar unterscheidet")
+        )
+    })
+    
+    output$impressum <- renderUI({
+        tagList(
+            tags$h1("Impressum"),
+            tags$br(),
+            tags$h2("Inhaltlich verantwortlich"),
+            tags$br(),
+            tags$text("Bojan Hartmann"),
+            tags$br(),
+            tags$a(href="mailto:bogie+dashboard@bawki.de","Mail"),
+            tags$br(),
+            tags$a(href="https://github.com/bogie/divi-dashboard","Source code")
         )
     })
     
@@ -357,7 +428,7 @@ server <- function(input, output, session) {
                 margin=list(l=30,r=30,t=30,b=30)
                 )
         fig <- fig %>%
-            config(mapboxAccessToken = mapBoxToken)
+            config(mapboxAccessToken = mapBoxToken, displayModeBar = FALSE)
         
         fig
     })
@@ -399,7 +470,7 @@ server <- function(input, output, session) {
                 legend = list(orientation = 'h')
                 ) 
         fig <- fig %>%
-            config(mapboxAccessToken = mapBoxToken)
+            config(mapboxAccessToken = mapBoxToken, displayModeBar = FALSE)
         
         fig
     })
