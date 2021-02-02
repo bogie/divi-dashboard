@@ -7,21 +7,34 @@
 #    http://shiny.rstudio.com/
 #
 
-library(shiny)
-library(plotly)
-library(dplyr)
-library(lubridate)
-library(rvest)
-library(stringr)
-library(tidyverse)
-library(openxlsx)
-library(shinythemes)
-library(jsonlite)
-library(forecast)
+suppressPackageStartupMessages(library(shiny))
+suppressPackageStartupMessages(library(plotly))
+suppressPackageStartupMessages(library(dplyr))
+suppressPackageStartupMessages(library(lubridate))
+suppressPackageStartupMessages(library(rvest))
+suppressPackageStartupMessages(library(stringr))
+suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(openxlsx))
+suppressPackageStartupMessages(library(shinythemes))
+suppressPackageStartupMessages(library(jsonlite))
+suppressPackageStartupMessages(library(forecast))
+suppressPackageStartupMessages(library(tidymodels))
+suppressPackageStartupMessages(library(modeltime))
+suppressPackageStartupMessages(library(timetk))
+suppressPackageStartupMessages(library(earth))
+suppressPackageStartupMessages(library(rjson))
+
+options(Ncpus=6)
+shinyOptions(cache= memoryCache(max_size=1000*1024^2))
 
 Sys.setlocale("LC_CTYPE","german")
-if(!file.exists("divi.rds") || !file.exists("gemeinden.rds")) {
-    source("./updateDIVIdata.R",encoding = "utf-8")
+if(!file.exists("divi.feather") || !file.exists("gemeinden.feather") ||
+   !file.exists("diviForecast.feather") || !file.exists("diviForecastAccuracy.feather")) {
+    source("./updateDIVIdata.R",encoding = "UTF-8")
+}
+
+if(!file.exists("rkiData/rki.feather")) {
+    source("./UpdateRKI.R", encoding = "UTF-8")
 }
 
 fix.encoding <- function(df, originalEncoding = "UTF-8") {
@@ -51,7 +64,9 @@ checkFileCache <- function(fname, cacheTime = hours(1)) {
 }
 
 loadHospitalData <- function() {
-    download.file("https://www.intensivregister.de/api/public/intensivregister","json_data/hospitals.json")
+    if(checkFileCache("json_data/hospitals.json",hours(2))) {
+        download.file("https://www.intensivregister.de/api/public/intensivregister","json_data/hospitals.json")
+    }
     hospitals <- jsonlite::fromJSON("json_data/hospitals.json",flatten = TRUE)$data
     hospitals <- hospitals %>%
         left_join(dplyr::select(filteredZipcodes,zipcode,community_code),by=c("krankenhausStandort.plz"="zipcode"))
@@ -63,7 +78,6 @@ loadHospitalData <- function() {
         krankenhausStandort.plz == "99437" ~ "16071",
         TRUE ~ as.character(community_code)
     )) %>%
-        mutate(community_code = as.numeric(community_code)) %>%
         mutate_at(c("bettenStatus.statusLowCare","bettenStatus.statusHighCare","bettenStatus.statusECMO"),
                   ~factor(., levels=c("VERFUEGBAR","BEGRENZT","NICHT_VERFUEGBAR","KEINE_ANGABE"), labels = c("Verfügbar","Begrenzt","Nicht verfügbar","Keine Angabe"))
         )
@@ -85,22 +99,74 @@ getReportingSections <- function(hospital) {
     json %>% dplyr::select(bezeichnung, faelleEcmoJahr,bettenPlankapazitaet)
 }
 
-filteredZipcodes <- readRDS("zips.rds")
-blNames <- c("Schleswig-Holstein","Hamburg","Niedersachsen","Bremen","Nordrhein-Westfalen","Hessen","Rheinland-Pfalz","Baden-Würrtemberg","Bayern","Saarland","Berlin","Brandenburg","Mecklenburg-Vorpommern","Sachsen","Sachsen-Anhalt","Thüringen")
+#filteredZipcodes <- readRDS("zips.rds")
+filteredZipcodes <- arrow::read_feather("zips.feather")
+blNames <- c("Schleswig-Holstein",
+             "Hamburg",
+             "Niedersachsen",
+             "Bremen",
+             "Nordrhein-Westfalen",
+             "Hessen",
+             "Rheinland-Pfalz",
+             "Baden-Würrtemberg",
+             "Bayern",
+             "Saarland",
+             "Berlin",
+             "Brandenburg",
+             "Mecklenburg-Vorpommern",
+             "Sachsen",
+             "Sachsen-Anhalt",
+             "Thüringen")
 
 hospitals <- loadHospitalData()
 
-diviData <- readRDS("divi.rds")
-rkiData <- readRDS("rkiData/rki.rds")
-gemeindeNamen <- readRDS("gemeinden.rds")
-diviData <- fix.encoding(diviData)
-gemeindeNamen <- fix.encoding(gemeindeNamen)
+# diviData <- readRDS("divi.rds")
+# rkiData <- readRDS("rkiData/rki.rds")
+# gemeindeNamen <- readRDS("gemeinden.rds")
+# diviData <- fix.encoding(diviData)
+# gemeindeNamen <- fix.encoding(gemeindeNamen)
 
-rki.mtime <- file.info("rkiData/rki.rds")$mtime
-divi.mtime <- file.info("divi.rds")$mtime
+diviData <- arrow::read_feather("divi.feather")
+diviForecast <- arrow::read_feather("diviForecast.feather")
+diviForecastAccuracy <- arrow::read_feather("diviForecastAccuracy.feather")
+gemeindeNamen <- arrow::read_feather("gemeinden.feather")
+rkiData <- arrow::read_feather("rkiData/rki.feather")
+
+rki.mtime <- file.info("rkiData/rki.feather")$mtime
+divi.mtime <- file.info("divi.feather")$mtime
+diviForecast.mtime <- file.info("diviForecast.feather")$mtime
+diviForecastAccuracy.mtime <- file.info("diviForecastAccuracy.feather")$mtime
 choices <- setNames(gemeindeNamen$gemeinde,gemeindeNamen$name)
 
 mapBoxToken <- paste(readLines("./mapBoxToken"), collapse="")
+
+plotChoreo <- function() {
+    today <- diviData %>% filter(date == max(date,na.rm = T))
+    # geojson <- rjson::fromJSON(file="https://github.com/isellsoap/deutschlandGeoJSON/raw/master/4_kreise/2_hoch.geo.json")
+    # geojson <- rjson::fromJSON(file="https://opendata.arcgis.com/datasets/917fc37a709542548cc3be077a786c17_0.geojson")
+    geojson <- rjson::fromJSON(file="./rkiData/geojson.json")
+    
+    plot_ly() %>%
+        add_trace(type="choroplethmapbox",
+                  geojson=geojson,
+                  name="",
+                  locations = today$gemeinde,
+                  featureidkey = "properties.RS",
+                  z = today$auslastung,
+                  colorscale = "Bluered",
+                  hovertext = ~paste(
+                      paste0("<b>",today$name,"</b>"),
+                      paste0("Kliniken: ", today$anzahl_standorte),
+                      paste0("Betten(frei): ",today$betten_frei),
+                      paste0("Betten(belegt): ",today$betten_belegt),
+                      paste0("Auslastung(%): ",today$auslastung),
+                      paste0("Anteil COVID(%): ",today$pct_covid),
+                      sep="<br />")) %>%
+        layout(mapbox = list(style="carto-positron",
+                             zoom=6,
+                             center = list(lon=10.437657,lat=50.9384167))
+               )
+}
 
 ui <- navbarPage(id = "page", theme=shinytheme("darkly"),
     # Application title
@@ -175,13 +241,18 @@ ui <- navbarPage(id = "page", theme=shinytheme("darkly"),
                  plotlyOutput("overallBetten"),
                  plotlyOutput("overallAuslastung"),
                  plotlyOutput("bundeslandBetten"))
-             ),
-             fluidRow(
-                 column(width=12,
-                        plotlyOutput("predictICU")
-                        )
              )
     ),
+    # tabPanel(title="Vorhersagemodelle", value="forecasts",
+    #     fluidRow(
+    #         column(width=12,
+    #                plotlyOutput("diviForecasts"))
+    #     ),
+    #     fluidRow(
+    #         column(width=12,
+    #                dataTableOutput("diviForecastsAcc"))
+    #     )
+    # ),
     tabPanel(title="Impressum",value="impressum",
              fluidRow(
                  column(width=12,
@@ -192,30 +263,40 @@ ui <- navbarPage(id = "page", theme=shinytheme("darkly"),
 )
 
 server <- function(input, output, session) {
-    gemeinde <- reactiveVal(value = 5334)
+    gemeinde <- reactiveVal(value = "05334")
     tab <- reactiveVal(value = "gemeinde")
     
-    if(file.info("divi.rds")$mtime>divi.mtime) {
-        print("divi.rds changed on disk, reloading")
-        diviData <- readRDS("divi.rds")
-        gemeindeNamen <- readRDS("gemeinden.rds")
-        divi.mtime <- file.info("divi.rds")$mtime
+    if(file.info("divi.feather")$mtime>divi.mtime) {
+        print("divi.feather changed on disk, reloading")
+        diviData <- arrow::read_feather("divi.feather")
+        gemeindeNamen <- arrow::read_feather("gemeinden.feather")
+        divi.mtime <- file.info("divi.feather")$mtime
     }
     
-    if(file.info("rkiData/rki.rds")$mtime>rki.mtime) {
-        print("divi.rds changed on disk, reloading")
-        rkiData <- readRDS("rkiData/rki.rds")
-        rki.mtime <- file.info("rkiData/rki.rds")$mtime
+    if(file.info("diviForecast.feather")$mtime>diviForecast.mtime) {
+        print("diviForecast.feather changed on disk, reloading")
+        diviForecast <- arrow::read_feather("diviForecast.feather")
+        diviForecast.mtime <- file.info("diviForecast.feather")$mtime
+    }
+    
+    if(file.info("diviForecastAccuracy.feather")$mtime>diviForecastAccuracy.mtime) {
+        print("diviForecastAccuracy.feather changed on disk, reloading")
+        diviForecastAccuracy <- arrow::read_feather("diviForecastAccuracy.feather")
+        diviForecastAccuracy.mtime <- file.info("diviForecastAccuracy.feather")$mtime
+    }
+    
+    if(file.info("rkiData/rki.feather")$mtime>rki.mtime) {
+        print("divi.feather changed on disk, reloading")
+        rkiData <- arrow::read_feather("rkiData/rki.feather")
+        rki.mtime <- file.info("rkiData/rki.feather")$mtime
     }
 
     if(checkFileCache("json_data/hospitals.json")) {
-        print("checkFileCache true for hospitals.json")
         hospitals <- loadHospitalData()
     }
-
+    
     observeEvent(getQueryString(session), {
         qry <- getQueryString()
-        print(qry)
         if(!is.null(qry$tab)) {
             if(!is.na(qry$tab)) {
                 tab(qry$tab)
@@ -226,11 +307,11 @@ server <- function(input, output, session) {
         if(tab() == "gemeinde") {
             if(!is.null(qry$gemeinde)) {
                 if(is.na(qry$gemeinde))
-                    gemeinde(5334)
+                    gemeinde("05334")
                 else
                     gemeinde(qry$gemeinde)
             } else {
-                gemeinde(5334)
+                gemeinde("05334")
             }
         } else {
             
@@ -244,7 +325,7 @@ server <- function(input, output, session) {
     observeEvent(input$page, {
         if(input$page == "gemeinde")
             updateQueryString(paste0("?tab=",input$page,"&gemeinde=",gemeinde()),mode = "push",session = session)
-        else if(input$page %in% c("deutschland","impressum")) {
+        else if(input$page %in% c("deutschland","impressum","forecasts")) {
             updateQueryString(paste0("?tab=",input$page),mode="push",session=session)
         }
     })
@@ -267,48 +348,37 @@ server <- function(input, output, session) {
                                      choices = choices, selected = isolate(gemeinde()), selectize = TRUE)
     })
     
-    output$predictICU <- renderPlotly({
-        forecast_length <- 10
-        germany <- diviData %>%
-            group_by(date) %>%
-            summarise(sum_cov = sum(faelle_covid_aktuell), sum_intub = sum(faelle_covid_aktuell_beatmet)) %>%
-            ungroup()
-        fcVal <- tsclean(germany$sum_intub) %>% auto.arima(.) %>% forecast(.,forecast_length)
-        cov_forecast <- tsclean(germany$sum_cov) %>% auto.arima(.) %>% forecast(.,forecast_length)
-        
-        fore.dates <- seq(as.POSIXct(germany$date[length(germany$date)], origin='1970-01-01'),
-                          by=germany$date[length(germany$date)] - germany$date[length(germany$date)-1], len=forecast_length)
-        
-        
-        plot_ly(mode="lines") %>%
-            add_lines(x=as.POSIXct(germany$date, origin='1970-01-01'),
-                      y= germany$sum_intub,
-                      name="Aktuelle COVID Fälle(beatmet)",
-                      color=I("green"),
-                      marker=list(mode="lines")) %>%
-            add_lines(x=fore.dates,
-                      y=fcVal$mean,
-                      color=I("blue"),
-                      name="Aktuelle COVID Fälle(beatmet) Vorhersage") %>%
-            add_ribbons(x=fore.dates,
-                        ymin=fcVal$lower[,2],
-                        ymax=fcVal$upper[,2],
-                        name="95% confidence",
-                        color = I("gray95")) %>%
-            add_lines(x=as.POSIXct(germany$date, origin='1970-01-01'),
-                      y= germany$sum_cov,
-                      name="Aktuelle COVID Fälle",
-                      color=I("orange"),
-                      marker=list(mode="lines")) %>%
-            add_lines(x=fore.dates,
-                      y=cov_forecast$mean,
-                      color=I("yellow"),
-                      name="Aktuelle COVID Fälle Vorhersage") %>%
-            add_ribbons(x=fore.dates,
-                        ymin=cov_forecast$lower[,2],
-                        ymax=cov_forecast$upper[,2],
-                        name="Aktuelle COVID Fälle 95% confidence",
-                        color = I("gray95"))
+    output$diviForecasts <- renderPlotly({
+        forecasts()$forecast %>%
+            plot_ly(type = "scatter",mode="lines+markers") %>%
+            add_lines(x=~.index,
+                      y=~.value,
+                      name=~.model_desc,
+                      yaxis="y") %>%
+            add_ribbons(x=~.index,
+                        ymin=~.conf_lo,
+                        ymax=~.conf_hi,
+                        name=~paste0("95%CI ",.model_desc),
+                        yaxis="y") %>%
+            add_paths(x=~.index,
+                      y=~lockdown_level,
+                      name="Lockdown Level",
+                      yaxis="y2") %>%
+            plotly::layout(yaxis=list(
+                                title="Patienten",
+                                side="left"),
+                           yaxis2=list(
+                               title="Regressoren",
+                               side="right",
+                               overlaying="y"))
+    })
+    
+    output$diviForecastsAcc_total <- renderDataTable({
+        diviForecastAccuracy$total
+    })
+    
+    output$diviForecastsAcc_intub <- renderDataTable({
+        diviForecastAccuracy$intub
     })
     
     output$hospitalDetailUI <- renderUI({
@@ -391,9 +461,6 @@ server <- function(input, output, session) {
         
         zoom_factor <- max(zoom_lat,zoom_long)
         auto_zoom <- -1.35 * log(zoom_factor) + 8
-        
-        print(paste("Zoom: ",auto_zoom))
-        print(paste("Center: ",center.lon, center.lat))
 
         fig <- df %>%
             plot_ly(
@@ -436,9 +503,7 @@ server <- function(input, output, session) {
     output$deutschlandMap <- renderPlotly({
         center.lon <- median(hospitals$krankenhausStandort.position.longitude)
         center.lat <- median(hospitals$krankenhausStandort.position.latitude)
-        
-        print(paste("Center: ",center.lon, center.lat))
-        
+
         fig <- hospitals %>%
             plot_ly(
                 lat = ~krankenhausStandort.position.latitude,
@@ -640,8 +705,44 @@ server <- function(input, output, session) {
                                                         sum_faelle_covid_aktuell = sum(faelle_covid_aktuell),
                                                         sum_faelle_covid_aktuell_beatmet = sum(faelle_covid_aktuell_beatmet))
         plot_ly(dt, type="scatter",mode="lines") %>%
-            add_trace(x=~date, y=~sum_faelle_covid_aktuell, name="Aktuelle COVID Fälle") %>%
-            add_trace(x=~date,y=~sum_faelle_covid_aktuell_beatmet, name="Aktuelle COVID Fälle(beatmet)") %>%
+            add_trace(x=~date, y=~sum_faelle_covid_aktuell, name="Fälle(ICU)") %>%
+            add_trace(x=~date,y=~sum_faelle_covid_aktuell_beatmet, name="Fälle(beatmet)") %>%
+            add_trace(data = diviForecast$total,
+                      x=~.index,
+                      y=~.conf_hi_sum_covid,
+                      line = list(color = 'transparent'),
+                      showlegend=FALSE,
+                      name="Vorhersage: hoch") %>%
+            add_trace(data = diviForecast$total,
+                      x=~.index,
+                      y=~.conf_lo_sum_covid,
+                      fill="tonexty",
+                      fillcolor='rgba(255,127,14,0.2)',
+                      line = list(color = 'transparent'),
+                      showlegend=FALSE,
+                      name="Vorhersage: niedrig") %>%
+            add_trace(data = diviForecast$total,
+                      x=~.index,y=~.value_sum_covid,
+                      name="Vorhersage: Fälle(ICU)",
+                      line = list(color="#FF7F0E")) %>%
+            add_trace(data = diviForecast$intub,
+                      x=~.index,
+                      y=~.conf_hi_sum_intub,
+                      line = list(color = 'transparent'),
+                      showlegend=FALSE,
+                      name="Vorhersage: hoch") %>%
+            add_trace(data = diviForecast$intub,
+                      x=~.index,
+                      y=~.conf_lo_sum_intub,
+                      fill="tonexty",
+                      fillcolor='rgba(40,160,40,0.2)',
+                      line = list(color = 'transparent'),
+                      showlegend=FALSE,
+                      name="Vorhersage: niedrig") %>%
+            add_trace(data = diviForecast$intub,
+                      x=~.index,y=~.value_sum_intub,
+                      name="Vorhersage: Fälle(beatmet)",
+                      line = list(color="#2CA02C")) %>%
             plotly::layout(xaxis=list(title="Datum"),yaxis=list(title="Fälle"), hovermode="x unified")
     })
     
@@ -697,14 +798,34 @@ server <- function(input, output, session) {
         plot_ly(dt, type="scatter",mode="lines") %>%
             add_trace(x=~date,y=~pct_covid,name="Anteil COVID-19",
                       hovertemplate = paste('Datum: %{x}',
-                                            '<br>Prozent: %{y}')) %>%
+                                            '<br>Prozent: %{y}'),
+                      yaxis="y") %>%
             add_trace(x=~date,y=~auslastung,name="Auslastung",
                       hovertemplate = paste('Datum: %{x}',
-                                            '<br>Prozent: %{y}')) %>%
-            plotly::layout(xaxis=list(title="Datum"),
-                           yaxis=ylbl,
-                           hovermode="x unified",
-                           legend = list(orientation = 'h'))
+                                            '<br>Prozent: %{y}'),
+                      yaxis="y") %>%
+            add_trace(x=~date,
+                      y=~betten_frei,
+                      data=filter(diviData,gemeinde==gemeinde()),
+                      name="Intensivbetten(frei)",
+                      hovertemplate = paste0('Datum: %{x}','<br>Betten: %{y}'),
+                      line=list(color=toRGB("lightblue")),
+                      yaxis="y2"
+            ) %>%
+            add_trace(x=~date,
+                      y=~betten_belegt,
+                      data=filter(diviData,gemeinde==gemeinde()),
+                      name="Intensivbetten(belegt)",
+                      hovertemplate = paste0('Datum: %{x}','<br>Betten: %{y}'),
+                      line=list(color=toRGB("yellowgreen")),
+                      yaxis="y2"
+            ) %>%
+        plotly::layout(
+            xaxis=list(title="Datum"),
+            yaxis=list(title="Prozent",side="left"),
+            yaxis2=list(title="Betten",overlaying="y",side="right"),
+            hovermode="x unified",
+            legend = list(orientation = 'h'))
     })
     
     output$diviBetten <- renderPlotly({

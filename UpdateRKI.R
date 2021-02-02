@@ -1,16 +1,20 @@
 download.file("https://www.arcgis.com/sharing/rest/content/items/f10774f1c63e40168479a1feb6c7ca74/data","rkiData/RKI_COVID19.csv")
 
-library(lubridate)
-library(dplyr)
-rkiData <- read.csv("rkiData/RKI_COVID19.csv",encoding = "UTF-8")
+suppressPackageStartupMessages(library(lubridate))
+suppressPackageStartupMessages(library(dplyr))
+suppressPackageStartupMessages(library(arrow))
+suppressPackageStartupMessages(library(vroom))
+
+#rkiData <- read.csv("rkiData/RKI_COVID19.csv",encoding = "UTF-8",colClasses = "character")
+rkiData <- vroom::vroom("rkiData/RKI_COVID19.csv",col_types = "nnccccnncccnncnnnc")
 
 rkiData$Meldedatum <- ymd_hms(rkiData$Meldedatum)
 rkiData$Datenstand <- dmy_hm(rkiData$Datenstand)
 rkiData$Refdatum <- ymd_hms(rkiData$Refdatum)
 
-rkiData[rkiData$IdLandkreis %in% c(11001:11012),]$IdLandkreis <- 11000
-rkiData[rkiData$IdLandkreis == 9473,]$IdLandkreis <- 9463
-rkiData[rkiData$IdLandkreis == 9573,]$IdLandkreis <- 9563
+rkiData[rkiData$IdLandkreis %in% c(11001:11012),]$IdLandkreis <- "11000"
+rkiData[rkiData$IdLandkreis == "09473",]$IdLandkreis <- "9463"
+rkiData[rkiData$IdLandkreis == "09573",]$IdLandkreis <- "9563"
 
 rkiData <- rkiData %>%
     group_by(IdBundesland,IdLandkreis,Refdatum, Altersgruppe) %>%
@@ -40,4 +44,5 @@ rkiData <- rkiData %>%
 #         yaxis2=list(title="Tote",overlaying="y",side="right"),
 #         hovermode="x unified")
 
-saveRDS(rkiData,file="rkiData/rki.rds")
+#saveRDS(rkiData,file="rkiData/rki.rds")
+arrow::write_feather(rkiData,"rkiData/rki.feather")
