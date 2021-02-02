@@ -4,6 +4,7 @@
 .Ruserdata
 rawData
 *.rds
+*.feather
 mapBoxToken
 json_data/*
 json_data/meldebereiche/*

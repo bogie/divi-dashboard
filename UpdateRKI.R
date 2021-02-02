@@ -1,4 +1,27 @@
-download.file("https://www.arcgis.com/sharing/rest/content/items/f10774f1c63e40168479a1feb6c7ca74/data","rkiData/RKI_COVID19.csv")
+
+tryCatch({
+    success <- download.file("https://www.arcgis.com/sharing/rest/content/items/f10774f1c63e40168479a1feb6c7ca74/data","rkiData/RKI_COVID19.csv")
+    },
+    warning = function(war) {
+        print(paste("Downloading file yielded warning: ",war))
+    },
+    error = function(err) {
+        print(paste("Downloading file yielded err: ", err))
+        Sys.sleep(60)
+        success <- download.file("https://www.arcgis.com/sharing/rest/content/items/f10774f1c63e40168479a1feb6c7ca74/data","rkiData/RKI_COVID19.csv")
+    },
+    finally = function(f) {
+        print(paste("Downloading file yielded finally: ", f))
+    }
+)
+
+print(paste("File downloaded finished with code: ", success))
+
+if(success!=0) {
+    print(paste("Download did not succeed, waiting 60 seconds and trying again"))
+    Sys.sleep(60)
+    download.file("https://www.arcgis.com/sharing/rest/content/items/f10774f1c63e40168479a1feb6c7ca74/data","rkiData/RKI_COVID19.csv")
+}
 
 suppressPackageStartupMessages(library(lubridate))
 suppressPackageStartupMessages(library(dplyr))

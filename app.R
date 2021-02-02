@@ -24,7 +24,7 @@ suppressPackageStartupMessages(library(timetk))
 suppressPackageStartupMessages(library(earth))
 suppressPackageStartupMessages(library(rjson))
 
-options(Ncpus=6)
+options(Ncpus=6,encoding = "UTF-8")
 shinyOptions(cache= memoryCache(max_size=1000*1024^2))
 
 Sys.setlocale("LC_CTYPE","german")
