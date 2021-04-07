@@ -1,31 +1,38 @@
-#
-# This is a Shiny web application. You can run the application by clicking
-# the 'Run App' button above.
-#
-# Find out more about building applications with Shiny here:
-#
-#    http://shiny.rstudio.com/
-#
+loadPackages <- function(package = NULL, packageList = NULL, silent = TRUE) {
+    inst_pkgs <- installed.packages()
+    if(!is.null(packageList)) {
+        ret <- lapply(packageList, function(pkg) {
+            if(!pkg %in% inst_pkgs){
+                print(paste("Installing package: ",pkg))
+                install.packages(pkg)
+            }
+            
+            if(silent)
+                suppressPackageStartupMessages(require(pkg,character.only = TRUE, quietly = T))
+            else
+                require(pkg, character.only=TRUE)
+        })
+    } else if(!is.null(package)) {
+        if(!package %in% inst_pkgs) {
+            print(paste("Installing package: ", package))
+            install.packages(pkg)
+        }
+        if(silent)
+            suppressPackageStartupMessages(require(package,character.only = TRUE, quietly = T))
+        else
+            require(package, character.only=TRUE)
+    }
+}
 
-suppressPackageStartupMessages(library(shiny))
-suppressPackageStartupMessages(library(plotly))
-suppressPackageStartupMessages(library(dplyr))
-suppressPackageStartupMessages(library(lubridate))
-suppressPackageStartupMessages(library(rvest))
-suppressPackageStartupMessages(library(stringr))
-suppressPackageStartupMessages(library(tidyverse))
-suppressPackageStartupMessages(library(openxlsx))
-suppressPackageStartupMessages(library(shinythemes))
-suppressPackageStartupMessages(library(jsonlite))
-suppressPackageStartupMessages(library(forecast))
-suppressPackageStartupMessages(library(tidymodels))
-suppressPackageStartupMessages(library(modeltime))
-suppressPackageStartupMessages(library(timetk))
-suppressPackageStartupMessages(library(earth))
-suppressPackageStartupMessages(library(rjson))
+loadPackages(packageList = c("shiny","plotly","tidyverse","lubridate","rvest",
+                             "stringr","openxlsx","shinythemes","jsonlite",
+                             "forecast","tidymodels","modeltime","timetk","earth",
+                             "rjson","promises","future"))
 
-options(Ncpus=6,encoding = "UTF-8")
-shinyOptions(cache= memoryCache(max_size=1000*1024^2))
+plan(multisession)
+
+options(Ncpus = 6,encoding = "UTF-8")
+shinyOptions(cache = cachem::cache_mem(max_size=1000*1024^2))
 
 Sys.setlocale("LC_CTYPE","german")
 if(!file.exists("divi.feather") || !file.exists("gemeinden.feather") ||
@@ -78,7 +85,7 @@ loadHospitalData <- function() {
         krankenhausStandort.plz == "99437" ~ "16071",
         TRUE ~ as.character(community_code)
     )) %>%
-        mutate_at(c("bettenStatus.statusLowCare","bettenStatus.statusHighCare","bettenStatus.statusECMO"),
+        mutate_at(c("maxBettenStatusEinschaetzungLowCare","maxBettenStatusEinschaetzungHighCare","maxBettenStatusEinschaetzungEcmo"),
                   ~factor(., levels=c("VERFUEGBAR","BEGRENZT","NICHT_VERFUEGBAR","KEINE_ANGABE"), labels = c("Verfügbar","Begrenzt","Nicht verfügbar","Keine Angabe"))
         )
     return(hospitals)
@@ -144,7 +151,8 @@ plotChoreo <- function() {
     today <- diviData %>% filter(date == max(date,na.rm = T))
     # geojson <- rjson::fromJSON(file="https://github.com/isellsoap/deutschlandGeoJSON/raw/master/4_kreise/2_hoch.geo.json")
     # geojson <- rjson::fromJSON(file="https://opendata.arcgis.com/datasets/917fc37a709542548cc3be077a786c17_0.geojson")
-    geojson <- rjson::fromJSON(file="./rkiData/geojson.json")
+    
+    #geojson2 <- rjson::fromJSON(file="./rkiData/geojson.json")
     
     plot_ly() %>%
         add_trace(type="choroplethmapbox",
@@ -165,7 +173,7 @@ plotChoreo <- function() {
         layout(mapbox = list(style="carto-positron",
                              zoom=6,
                              center = list(lon=10.437657,lat=50.9384167))
-               )
+        )
 }
 
 ui <- navbarPage(id = "page", theme=shinytheme("darkly"),
@@ -185,10 +193,10 @@ ui <- navbarPage(id = "page", theme=shinytheme("darkly"),
         fluidRow(
             column(width = 4, uiOutput("filterUI"),
             selectInput("mapStatus",h3("Farbkodierung Karte wählen"),
-                                          choices = c("Low Care"="bettenStatus.statusLowCare",
-                                                      "High Care"="bettenStatus.statusHighCare",
-                                                      "ECMO"="bettenStatus.statusECMO"),
-                                          selected = "bettenStatus.statusHighCare", selectize = TRUE),
+                                          choices = c("Low Care"="maxBettenStatusEinschaetzungLowCare",
+                                                      "High Care"="maxBettenStatusEinschaetzungHighCare",
+                                                      "ECMO"="maxBettenStatusEinschaetzungEcmo"),
+                                          selected = "maxBettenStatusEinschaetzungHighCare", selectize = TRUE),
             htmlOutput("stats")),
             column(width = 8, 
                    #tableOutput("plotlyClick")
@@ -221,14 +229,13 @@ ui <- navbarPage(id = "page", theme=shinytheme("darkly"),
              fluidRow(
                  column(width = 4,
                     selectInput("overallMapStatus",h3("Farbkodierung Karte wählen"),
-                                  choices = c("Low Care"="bettenStatus.statusLowCare",
-                                              "High Care"="bettenStatus.statusHighCare",
-                                              "ECMO"="bettenStatus.statusECMO"),
-                                  selected = "bettenStatus.statusHighCare", selectize = TRUE),
+                                  choices = c("Low Care"="maxBettenStatusEinschaetzungLowCare",
+                                              "High Care"="maxBettenStatusEinschaetzungHighCare",
+                                              "ECMO"="maxBettenStatusEinschaetzungEcmo"),
+                                  selected = "maxBettenStatusEinschaetzungHighCare", selectize = TRUE),
                     htmlOutput("overallStats")
                  ),
                  column(width = 8, 
-                        #tableOutput("overallPlotlyClick")
                         uiOutput("overallHospitalDetailUI")
                         )
              ),
@@ -243,16 +250,9 @@ ui <- navbarPage(id = "page", theme=shinytheme("darkly"),
                  plotlyOutput("bundeslandBetten"))
              )
     ),
-    # tabPanel(title="Vorhersagemodelle", value="forecasts",
-    #     fluidRow(
-    #         column(width=12,
-    #                plotlyOutput("diviForecasts"))
-    #     ),
-    #     fluidRow(
-    #         column(width=12,
-    #                dataTableOutput("diviForecastsAcc"))
-    #     )
-    # ),
+    tabPanel(title="Map", value="map",
+                        plotlyOutput("choropleth",height = "1080")
+             ),
     tabPanel(title="Impressum",value="impressum",
              fluidRow(
                  column(width=12,
@@ -265,6 +265,8 @@ ui <- navbarPage(id = "page", theme=shinytheme("darkly"),
 server <- function(input, output, session) {
     gemeinde <- reactiveVal(value = "05334")
     tab <- reactiveVal(value = "gemeinde")
+    geojson <- reactive({jsonlite::fromJSON("./rkiData/geojson.json",simplifyDataFrame = F)}) %>% bindCache(diviData %>% summarise(max(date,na.rm=T)))
+    today <- reactive({diviData %>% filter(date == max(date,na.rm = T))}) %>% bindCache(diviData %>% summarise(max(date,na.rm=T)))
     
     if(file.info("divi.feather")$mtime>divi.mtime) {
         print("divi.feather changed on disk, reloading")
@@ -325,7 +327,7 @@ server <- function(input, output, session) {
     observeEvent(input$page, {
         if(input$page == "gemeinde")
             updateQueryString(paste0("?tab=",input$page,"&gemeinde=",gemeinde()),mode = "push",session = session)
-        else if(input$page %in% c("deutschland","impressum","forecasts")) {
+        else if(input$page %in% c("deutschland","impressum","forecasts","map")) {
             updateQueryString(paste0("?tab=",input$page),mode="push",session=session)
         }
     })
@@ -348,37 +350,33 @@ server <- function(input, output, session) {
                                      choices = choices, selected = isolate(gemeinde()), selectize = TRUE)
     })
     
-    output$diviForecasts <- renderPlotly({
-        forecasts()$forecast %>%
-            plot_ly(type = "scatter",mode="lines+markers") %>%
-            add_lines(x=~.index,
-                      y=~.value,
-                      name=~.model_desc,
-                      yaxis="y") %>%
-            add_ribbons(x=~.index,
-                        ymin=~.conf_lo,
-                        ymax=~.conf_hi,
-                        name=~paste0("95%CI ",.model_desc),
-                        yaxis="y") %>%
-            add_paths(x=~.index,
-                      y=~lockdown_level,
-                      name="Lockdown Level",
-                      yaxis="y2") %>%
-            plotly::layout(yaxis=list(
-                                title="Patienten",
-                                side="left"),
-                           yaxis2=list(
-                               title="Regressoren",
-                               side="right",
-                               overlaying="y"))
-    })
-    
-    output$diviForecastsAcc_total <- renderDataTable({
-        diviForecastAccuracy$total
-    })
-    
-    output$diviForecastsAcc_intub <- renderDataTable({
-        diviForecastAccuracy$intub
+    output$choropleth <- renderPlotly({
+        withProgress(message = "Loading Map",value = 0,{
+            p <- plot_ly() %>%
+                add_trace(type="choroplethmapbox",
+                          geojson=geojson(),
+                          name="Auslastung",
+                          locations = today()$gemeinde,
+                          featureidkey = "properties.RS",
+                          z = today()$auslastung,
+                          colorscale = "Bluered",
+                          text = ~paste(
+                              paste0("<b>",today()$name,"</b>"),
+                              paste0("Kliniken: ", today()$anzahl_standorte),
+                              paste0("Betten(frei): ",today()$betten_frei),
+                              paste0("Betten(belegt): ",today()$betten_belegt),
+                              paste0("Auslastung(%): ",today()$auslastung),
+                              paste0("Anteil COVID(%): ",today()$pct_covid),
+                              sep="<br />"),
+                          hovertemplate = "%{text}<extra></extra>"
+                          ) %>%
+                layout(mapbox = list(style="carto-positron",
+                                     zoom=6,
+                                     center = list(lon=10.437657,lat=50.9384167))
+                )
+            incProgress(0.5,detail="Loading complete")
+            p
+        })
     })
     
     output$hospitalDetailUI <- renderUI({
@@ -451,53 +449,60 @@ server <- function(input, output, session) {
     })
     
     output$map <- renderPlotly({
-        df <- subset(hospitals,community_code==gemeinde())
-        center.lon <- (max(df$krankenhausStandort.position.longitude)+min(df$krankenhausStandort.position.longitude))/2
-        center.lat <- (max(df$krankenhausStandort.position.latitude)+min(df$krankenhausStandort.position.latitude))/2
-        
-        
-        zoom_lat <- abs(abs(max(df$krankenhausStandort.position.latitude)) - abs(min(df$krankenhausStandort.position.latitude)))
-        zoom_long <- abs(abs(max(df$krankenhausStandort.position.longitude)) - abs(min(df$krankenhausStandort.position.longitude)))
-        
-        zoom_factor <- max(zoom_lat,zoom_long)
-        auto_zoom <- -1.35 * log(zoom_factor) + 8
-
-        fig <- df %>%
-            plot_ly(
-                lat = ~krankenhausStandort.position.latitude,
-                lon = ~krankenhausStandort.position.longitude,
-                customdata = ~krankenhausStandort.id,
-                mode = "markers",
-                color = df[,input$mapStatus],
-                colors = c("green","orange","red","grey"),
-                type = 'scattermapbox',
-                hoverinfo="text",
-                source = "diviMap",
-                hovertext = ~paste(
-                    paste0("<b>",krankenhausStandort.bezeichnung,"</b>"),
-                    paste0("Address: ",krankenhausStandort.strasse," ",
-                           krankenhausStandort.hausnummer,", ",
-                           krankenhausStandort.plz," ",
-                           krankenhausStandort.ort),
-                    paste("Low Care:",bettenStatus.statusLowCare),
-                    paste("High Care:",bettenStatus.statusHighCare),
-                    paste("ECMO:",bettenStatus.statusECMO),
-                    sep="<br />")
-                )
-        fig <- fig %>%
-            layout(
-                mapbox = list(
-                    style = 'dark',
-                    zoom = auto_zoom,
-                    center = list(lon = center.lon, lat = center.lat)
-                    ),
-                legend = list(orientation = 'h'),
-                margin=list(l=30,r=30,t=30,b=30)
-                )
-        fig <- fig %>%
-            config(mapboxAccessToken = mapBoxToken, displayModeBar = FALSE)
-        
-        fig
+        n <- 3
+        withProgress(message = "Map: loading data", value = 0, {
+            df <- subset(hospitals,community_code==gemeinde())
+            center.lon <- (max(df$krankenhausStandort.position.longitude)+min(df$krankenhausStandort.position.longitude))/2
+            center.lat <- (max(df$krankenhausStandort.position.latitude)+min(df$krankenhausStandort.position.latitude))/2
+            
+            
+            zoom_lat <- abs(abs(max(df$krankenhausStandort.position.latitude)) - abs(min(df$krankenhausStandort.position.latitude)))
+            zoom_long <- abs(abs(max(df$krankenhausStandort.position.longitude)) - abs(min(df$krankenhausStandort.position.longitude)))
+            
+            zoom_factor <- max(zoom_lat,zoom_long)
+            auto_zoom <- -1.35 * log(zoom_factor) + 8
+    
+            incProgress(1/n, detail = paste("Map: generating map"))
+            fig <- df %>%
+                plot_ly(
+                    lat = ~krankenhausStandort.position.latitude,
+                    lon = ~krankenhausStandort.position.longitude,
+                    customdata = ~krankenhausStandort.id,
+                    mode = "markers",
+                    color = df[,input$mapStatus],
+                    colors = c("green","orange","red","grey"),
+                    type = 'scattermapbox',
+                    hoverinfo="text",
+                    source = "diviMap",
+                    hovertext = ~paste(
+                        paste0("<b>",krankenhausStandort.bezeichnung,"</b>"),
+                        paste0("Address: ",krankenhausStandort.strasse," ",
+                               krankenhausStandort.hausnummer,", ",
+                               krankenhausStandort.plz," ",
+                               krankenhausStandort.ort),
+                        paste("Low Care:",maxBettenStatusEinschaetzungLowCare),
+                        paste("High Care:",maxBettenStatusEinschaetzungHighCare),
+                        paste("ECMO:",maxBettenStatusEinschaetzungEcmo),
+                        sep="<br />")
+                    )
+            
+            incProgress(2/n, detail = "Map: applying layout")
+            fig <- fig %>%
+                layout(
+                    mapbox = list(
+                        style = 'dark',
+                        zoom = auto_zoom,
+                        center = list(lon = center.lon, lat = center.lat)
+                        ),
+                    legend = list(orientation = 'h'),
+                    margin=list(l=30,r=30,t=30,b=30)
+                    )
+            fig <- fig %>%
+                config(mapboxAccessToken = mapBoxToken, displayModeBar = FALSE)
+            
+            incProgress(3/n, detail = "Map: rendering")
+            fig
+        })
     })
     
     output$deutschlandMap <- renderPlotly({
@@ -521,9 +526,9 @@ server <- function(input, output, session) {
                            krankenhausStandort.hausnummer,", ",
                            krankenhausStandort.plz," ",
                            krankenhausStandort.ort),
-                    paste("Low Care:",bettenStatus.statusLowCare),
-                    paste("High Care:",bettenStatus.statusHighCare),
-                    paste("ECMO:",bettenStatus.statusECMO),
+                    paste("Low Care:",maxBettenStatusEinschaetzungLowCare),
+                    paste("High Care:",maxBettenStatusEinschaetzungHighCare),
+                    paste("ECMO:",maxBettenStatusEinschaetzungEcmo),
                     sep="<br />")
             )
         fig <- fig %>%
@@ -603,44 +608,52 @@ server <- function(input, output, session) {
     })
     
     output$rkiPlot <- renderPlotly({
-        rkiData %>% filter(IdLandkreis==gemeinde()) %>%
-            group_by(Refdatum) %>%
-            summarise(cases=sum(cases),deaths=sum(deaths)) %>%
-            ungroup() %>% arrange(Refdatum) %>%
-            mutate(cumCases=cumsum(cases),cumDeaths=cumsum(deaths)) %>%
-        plot_ly(type="scatter",mode="lines") %>%
-            add_trace(x=~Refdatum,
-                      y=~cumCases,
-                      hovertemplate = paste0('Datum: %{x}','<br>Fälle: %{y}'),
-                      name="Gesamte Fälle",
-                      yaxis="y",
-                      line=list(color=toRGB("black"))) %>%
-            add_trace(x=~Refdatum,
-                      y=~cumDeaths,
-                      hovertemplate = paste0('Datum: %{x}','<br>Fälle: %{y}'),
-                      name="Tote",
-                      yaxis="y2",
-                      line=list(color=toRGB("red"))) %>%
-            add_trace(x=~date,
-                      y=~faelle_covid_aktuell,
-                      data=filter(diviData,gemeinde==gemeinde()),
-                      name="COVID Patienten\n(auf Intensivstation)",
-                      hovertemplate = paste0('Datum: %{x}','<br>Fälle: %{y}'),
-                      line=list(color=toRGB("darkgreen")),
-                      yaxis="y2") %>%
-            add_trace(x=~date,
-                      y=~faelle_covid_aktuell_beatmet,
-                      data=filter(diviData,gemeinde==gemeinde()),
-                      name="COVID Patienten\n(beatmet auf Intensiv)",
-                      hovertemplate = paste0('Datum: %{x}','<br>Fälle: %{y}'),
-                      line=list(color=toRGB("orange")),
-                      yaxis="y2") %>%
-            plotly::layout(
-                xaxis=list(title="Datum"),
-                yaxis=list(title="Fallzahl",side="left"),
-                yaxis2=list(title="Tote",overlaying="y",side="right"),
-                hovermode="x unified",
-                legend = list(orientation = 'h'))
+        n <- 2
+        withProgress(message = "RKI plot: generating data", value = 0, {
+            df <- rkiData %>% filter(IdLandkreis==gemeinde()) %>%
+                group_by(Refdatum) %>%
+                summarise(cases=sum(cases),deaths=sum(deaths)) %>%
+                ungroup() %>% arrange(Refdatum) %>%
+                mutate(cumCases=cumsum(cases),cumDeaths=cumsum(deaths))
+            
+            incProgress(1/n, detail = paste("RKI plot: generating plot"))
+            p <- df %>% plot_ly(type="scatter",mode="lines") %>%
+                add_trace(x=~Refdatum,
+                          y=~cumCases,
+                          hovertemplate = paste0('Datum: %{x}','<br>Fälle: %{y}'),
+                          name="Gesamte Fälle",
+                          yaxis="y",
+                          line=list(color=toRGB("black"))) %>%
+                add_trace(x=~Refdatum,
+                          y=~cumDeaths,
+                          hovertemplate = paste0('Datum: %{x}','<br>Fälle: %{y}'),
+                          name="Tote",
+                          yaxis="y2",
+                          line=list(color=toRGB("red"))) %>%
+                add_trace(x=~date,
+                          y=~faelle_covid_aktuell,
+                          data=filter(diviData,gemeinde==gemeinde()),
+                          name="COVID Patienten\n(auf Intensivstation)",
+                          hovertemplate = paste0('Datum: %{x}','<br>Fälle: %{y}'),
+                          line=list(color=toRGB("darkgreen")),
+                          yaxis="y2") %>%
+                add_trace(x=~date,
+                          y=~faelle_covid_aktuell_beatmet,
+                          data=filter(diviData,gemeinde==gemeinde()),
+                          name="COVID Patienten\n(beatmet auf Intensiv)",
+                          hovertemplate = paste0('Datum: %{x}','<br>Fälle: %{y}'),
+                          line=list(color=toRGB("orange")),
+                          yaxis="y2") %>%
+                plotly::layout(
+                    xaxis=list(title="Datum"),
+                    yaxis=list(title="Fallzahl",side="left"),
+                    yaxis2=list(title="Tote",overlaying="y",side="right"),
+                    margin=list(l=40,r=40,t=0,b=0),
+                    hovermode="x unified",
+                    legend = list(orientation = 'h'))
+            incProgress(2/n, detail = "RKI plot: rendering")
+            p
+        })
     })
     
     output$rkiAgePlot <- renderPlotly({
@@ -674,76 +687,73 @@ server <- function(input, output, session) {
                 xaxis=list(title="Datum"),
                 yaxis=list(title="Fallzahl",side="left"),
                 yaxis2=list(title="Tote",overlaying="y",side="right"),
-                legend=list(x=0,y=1,
-                            margin=list(l=30,r=30,t=30,b=30))
-                           )
-            # plotly::layout(
-            #     scene = list(
-            #         zaxis=list(title="Fälle"),
-            #         camera = list(
-            #             eye = list(
-            #                 x=0.2,
-            #                 y=-2.1,
-            #                 z=0.3
-            #             ),
-            #             center = list(
-            #                 x=0,
-            #                 y=0,
-            #                 z=-0.2
-            #             )
-            #         )
-            #         )
-            #     )
+                margin=list(l=40,r=40,t=0,b=0),
+                legend=list(x=0,
+                            y=1,
+                            margin=list(l=80,r=30,t=30,b=30)
+                        )
+           )
     })
     
     output$overallBetten <- renderPlotly({
-        dt <- diviData %>% group_by(date) %>% summarise(#sum_area = sum(area),
-                                                        #sum_pop = sum(pop_all),
-                                                        #sum_standorte = sum(anzahl_standorte),
-                                                        #sum_free_beds = sum(betten_frei),
-                                                        #sum_occup_beds = sum(betten_belegt),
-                                                        sum_faelle_covid_aktuell = sum(faelle_covid_aktuell),
-                                                        sum_faelle_covid_aktuell_beatmet = sum(faelle_covid_aktuell_beatmet))
-        plot_ly(dt, type="scatter",mode="lines") %>%
-            add_trace(x=~date, y=~sum_faelle_covid_aktuell, name="Fälle(ICU)") %>%
-            add_trace(x=~date,y=~sum_faelle_covid_aktuell_beatmet, name="Fälle(beatmet)") %>%
-            add_trace(data = diviForecast$total,
-                      x=~.index,
-                      y=~.conf_hi_sum_covid,
-                      line = list(color = 'transparent'),
-                      showlegend=FALSE,
-                      name="Vorhersage: hoch") %>%
-            add_trace(data = diviForecast$total,
-                      x=~.index,
-                      y=~.conf_lo_sum_covid,
-                      fill="tonexty",
-                      fillcolor='rgba(255,127,14,0.2)',
-                      line = list(color = 'transparent'),
-                      showlegend=FALSE,
-                      name="Vorhersage: niedrig") %>%
-            add_trace(data = diviForecast$total,
-                      x=~.index,y=~.value_sum_covid,
-                      name="Vorhersage: Fälle(ICU)",
-                      line = list(color="#FF7F0E")) %>%
-            add_trace(data = diviForecast$intub,
-                      x=~.index,
-                      y=~.conf_hi_sum_intub,
-                      line = list(color = 'transparent'),
-                      showlegend=FALSE,
-                      name="Vorhersage: hoch") %>%
-            add_trace(data = diviForecast$intub,
-                      x=~.index,
-                      y=~.conf_lo_sum_intub,
-                      fill="tonexty",
-                      fillcolor='rgba(40,160,40,0.2)',
-                      line = list(color = 'transparent'),
-                      showlegend=FALSE,
-                      name="Vorhersage: niedrig") %>%
-            add_trace(data = diviForecast$intub,
-                      x=~.index,y=~.value_sum_intub,
-                      name="Vorhersage: Fälle(beatmet)",
-                      line = list(color="#2CA02C")) %>%
-            plotly::layout(xaxis=list(title="Datum"),yaxis=list(title="Fälle"), hovermode="x unified")
+        n <- 2
+        withProgress(message = "DIVI: preparing data", value = 0, {
+            dt <- diviData %>% group_by(date) %>% summarise(#sum_area = sum(area),
+                                                            #sum_pop = sum(pop_all),
+                                                            #sum_standorte = sum(anzahl_standorte),
+                                                            #sum_free_beds = sum(betten_frei),
+                                                            #sum_occup_beds = sum(betten_belegt),
+                                                            sum_faelle_covid_aktuell = sum(faelle_covid_aktuell),
+                                                            sum_faelle_covid_aktuell_beatmet = sum(faelle_covid_aktuell_beatmet))
+            incProgress(1/n, detail = "DIVI: preparing plot")
+            p <- plot_ly(dt, type="scatter",mode="lines") %>%
+                add_trace(x=~date, y=~sum_faelle_covid_aktuell, name="Fälle(ICU)") %>%
+                add_trace(x=~date,y=~sum_faelle_covid_aktuell_beatmet, name="Fälle(beatmet)") %>%
+                add_trace(data = diviForecast$total,
+                          x=~.index,
+                          y=~.conf_hi_sum_covid,
+                          line = list(color = 'transparent'),
+                          showlegend=FALSE,
+                          name="Vorhersage: hoch") %>%
+                add_trace(data = diviForecast$total,
+                          x=~.index,
+                          y=~.conf_lo_sum_covid,
+                          fill="tonexty",
+                          fillcolor='rgba(255,127,14,0.2)',
+                          line = list(color = 'transparent'),
+                          showlegend=FALSE,
+                          name="Vorhersage: niedrig") %>%
+                add_trace(data = diviForecast$total,
+                          x=~.index,y=~.value_sum_covid,
+                          name="Vorhersage: Fälle(ICU)",
+                          line = list(color="#FF7F0E")) %>%
+                add_trace(data = diviForecast$intub,
+                          x=~.index,
+                          y=~.conf_hi_sum_intub,
+                          line = list(color = 'transparent'),
+                          showlegend=FALSE,
+                          name="Vorhersage: hoch") %>%
+                add_trace(data = diviForecast$intub,
+                          x=~.index,
+                          y=~.conf_lo_sum_intub,
+                          fill="tonexty",
+                          fillcolor='rgba(40,160,40,0.2)',
+                          line = list(color = 'transparent'),
+                          showlegend=FALSE,
+                          name="Vorhersage: niedrig") %>%
+                add_trace(data = diviForecast$intub,
+                          x=~.index,y=~.value_sum_intub,
+                          name="Vorhersage: Fälle(beatmet)",
+                          line = list(color="#2CA02C")) %>%
+                plotly::layout(
+                    xaxis=list(title="Datum"),
+                    yaxis=list(title="Fälle"),
+                    hovermode="x unified",
+                    margin=list(l=40,r=40,t=0,b=0)
+                    )
+            incProgress(2/n, detail = "DIVI: rendering plot")
+            p
+        })
     })
     
     output$bundeslandBetten <- renderPlotly({
@@ -763,7 +773,11 @@ server <- function(input, output, session) {
                 name=~blNames[bundesland]) %>%
             group_by(bundesland) %>%
             add_lines() %>%
-            plotly::layout(xaxis=list(title="Datum"),yaxis=list(title="Fälle"))
+            plotly::layout(
+                xaxis=list(title="Datum"),
+                yaxis=list(title="Fälle"),
+                margin=list(l=40,r=40,t=0,b=0)
+            )
     })
     
     
@@ -786,6 +800,7 @@ server <- function(input, output, session) {
             plotly::layout(xaxis=list(title="Datum"),
                            yaxis=ylbl,
                            hovermode="x unified",
+                           margin=list(l=40,r=40,t=0,b=0),
                            legend = list(orientation = 'h'))
     })
     
@@ -824,6 +839,7 @@ server <- function(input, output, session) {
             xaxis=list(title="Datum"),
             yaxis=list(title="Prozent",side="left"),
             yaxis2=list(title="Betten",overlaying="y",side="right"),
+            margin=list(l=40,r=40,t=0,b=0),
             hovermode="x unified",
             legend = list(orientation = 'h'))
     })
@@ -833,7 +849,13 @@ server <- function(input, output, session) {
         plot_ly(dt, type="scatter",mode="lines") %>%
             add_trace(x=~date, y=~faelle_covid_aktuell, name="Aktuelle COVID Fälle") %>%
             add_trace(x=~date,y=~faelle_covid_aktuell_beatmet, name="Aktuelle COVID Fälle(beatmet)") %>%
-            plotly::layout(xaxis=list(title="Datum"),yaxis=list(title="Fälle"), hovermode="x unified")
+            plotly::layout(
+                xaxis=list(title="Datum"),
+                yaxis=list(title="Fälle"),
+                margin=list(l=40,r=40,t=0,b=0),
+                hovermode="x unified",
+                legend = list(orientation = 'h')
+            )
     })
     
     output$diviPop <- renderPlotly({
@@ -841,9 +863,15 @@ server <- function(input, output, session) {
         plot_ly(dt, type="scatter",mode="lines") %>%
             add_trace(x=~date, y=~covid_per_100k, name="COVID Fälle/100k Einwohner") %>%
             add_trace(x=~date, y=~covid_per_100k_intubated, name="COVID Fälle/100k Einwohner(beatmet)") %>%
-            plotly::layout(xaxis=list(title="Datum"),yaxis=list(title="Fälle/100k Einwohner"), hovermode="x unified")
+            plotly::layout(
+                xaxis=list(title="Datum"),
+                yaxis=list(title="Fälle/100k Einwohner"),
+                margin=list(l=40,r=40,t=0,b=0),
+                hovermode="x unified",
+                legend = list(orientation = 'h')
+            )
     })
 }
 
 # Run the application 
-shinyApp(ui = ui, server = server,enableBookmarking = "url")
+shinyApp(ui = ui, server = server)
