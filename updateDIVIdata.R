@@ -25,8 +25,8 @@ getDiviDataArchiveUrls <- function(start=0,end=60) {
     return(paste0("https://www.divi.de",csvUrls))
 }
 
-downloadDIVIdata <- function() {
-    diviUrls <- getDiviDataArchiveUrls()
+downloadDIVIdata <- function(start=0,end=60) {
+    diviUrls <- getDiviDataArchiveUrls(start,end)
     newFiles <- lapply(diviUrls, function(x) {
         splts <- str_split(x,"/",simplify = TRUE)
         filename <- paste0("./rawData/",splts[7],".csv")
@@ -76,7 +76,9 @@ createForecastData <- function() {
                 date <= ymd("2020-05-03") ~ 3,
                 date <= ymd("2020-11-02") ~ 1,
                 date <= ymd("2020-12-16") ~ 2,
-                date > ymd("2020-12-16") ~ 3
+                date <= ymd("2021-03-04") ~ 3,
+                date <= ymd("2021-04-19") ~ 2,
+                TRUE ~ 3
             )
         )
         )
@@ -187,14 +189,15 @@ diviData <- lapply(fileList, function(file) {
     csv$date <- fileDate
     csv$X <- NULL
     return(csv)
-})
-diviData <- bind_rows(diviData)
+}) %>% bind_rows(.)
 
 diviData$gemeinde <- ifelse(is.na(diviData$gemeindeschluessel),diviData$kreis,diviData$gemeindeschluessel)
 diviData$bundesland <- as.numeric(diviData$bundesland)
 diviData$kreis <- NULL
 diviData$gemeindeschluessel <- NULL
 diviData$faelle_covid_aktuell_im_bundesland <- NULL
+diviData$faelle_covid_aktuell_beatmet <- ifelse(is.na(diviData$faelle_covid_aktuell_beatmet),diviData$faelle_covid_aktuell_invasiv_beatmet,diviData$faelle_covid_aktuell_beatmet)
+diviData$faelle_covid_aktuell_invasiv_beatmet <- NULL
 
 diviData <- diviData %>%
     mutate(gemeinde = ifelse(str_length(gemeinde) == 4, str_c("0",gemeinde),gemeinde))

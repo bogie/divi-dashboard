@@ -103,7 +103,7 @@ getReportingSections <- function(hospital) {
     }
     
     json <- jsonlite::fromJSON(fname)
-    json %>% dplyr::select(bezeichnung, faelleEcmoJahr,bettenPlankapazitaet)
+    json %>% dplyr::select(bezeichnung)
 }
 
 #filteredZipcodes <- readRDS("zips.rds")
@@ -139,11 +139,20 @@ diviForecastAccuracy <- arrow::read_feather("diviForecastAccuracy.feather")
 gemeindeNamen <- arrow::read_feather("gemeinden.feather")
 rkiData <- arrow::read_feather("rkiData/rki.feather")
 
+
 rki.mtime <- file.info("rkiData/rki.feather")$mtime
 divi.mtime <- file.info("divi.feather")$mtime
 diviForecast.mtime <- file.info("diviForecast.feather")$mtime
 diviForecastAccuracy.mtime <- file.info("diviForecastAccuracy.feather")$mtime
 choices <- setNames(gemeindeNamen$gemeinde,gemeindeNamen$name)
+
+
+missing_county <- tibble(bundesland=c(7,9,9,9),
+       name=c("Rhein-Pfalz-Kreis","Landkreis neustadt an der Waldnaab", "Landkreis Coburg","Landkreis Fürth"),
+       gemeinde=c("07338","09374","09473","09573"),
+       anzahl_standorte=0,
+       anzahl_meldebereiche=0,
+       type="Kreis")
 
 mapBoxToken <- paste(readLines("./mapBoxToken"), collapse="")
 
@@ -265,8 +274,24 @@ ui <- navbarPage(id = "page", theme=shinytheme("darkly"),
 server <- function(input, output, session) {
     gemeinde <- reactiveVal(value = "05334")
     tab <- reactiveVal(value = "gemeinde")
-    geojson <- reactive({jsonlite::fromJSON("./rkiData/geojson.json",simplifyDataFrame = F)}) %>% bindCache(diviData %>% summarise(max(date,na.rm=T)))
-    today <- reactive({diviData %>% filter(date == max(date,na.rm = T))}) %>% bindCache(diviData %>% summarise(max(date,na.rm=T)))
+    geojson <- reactive({
+        jsonlite::fromJSON("./rkiData/geojson.json",simplifyDataFrame = F)
+        }) %>%
+        bindCache(diviData %>% summarise(max(date,na.rm=T)))
+    today <- reactive({
+            diviData %>% filter(date == max(date,na.rm = T)) 
+        # %>%
+        #          add_row(bundesland=7, anzahl_standorte=0, anzahl_meldebereiche=0, type="Kreis", name="Rhein-Pfalz-Kreis",gemeinde="07338", auslastung=0) %>%
+        #          add_row(bundesland=9, anzahl_standorte=0, anzahl_meldebereiche=0, type="Kreis", name="Landkreis Neustadt an der Waldnaab", gemeinde="09374", auslastung=0) %>%
+        #          add_row(bundesland=9, anzahl_standorte=0, anzahl_meldebereiche=0, type="Kreis", name="Landkreis Coburg", gemeinde="09473", auslastung=0) %>%
+        #          add_row(bundesland=9, anzahl_standorte=0, anzahl_meldebereiche=0, type="Kreis", name="Landkreis Fürth", gemeinde="09573", auslastung=0)
+            #    07338 Rhein-Pfalz-Kreis
+            #    09374 Landkreis Neustadt an der Waldnaab
+            #    09473 Landkreis_Coburg
+            #    09573
+            
+        }) %>%
+        bindCache(diviData %>% summarise(max(date,na.rm=T)))
     
     if(file.info("divi.feather")$mtime>divi.mtime) {
         print("divi.feather changed on disk, reloading")
@@ -351,32 +376,56 @@ server <- function(input, output, session) {
     })
     
     output$choropleth <- renderPlotly({
-        withProgress(message = "Loading Map",value = 0,{
-            p <- plot_ly() %>%
+        #withProgress(message = "Loading Map",value = 0,{
+        p <- Progress$new()
+        p$set(value = NULL, message = "Loading data...")
+        
+        td <- today()
+        gj <- geojson()
+        tx <- paste(
+            paste0("<b>",td$name,"</b>"),
+            paste0("Kliniken: ", td$anzahl_standorte),
+            paste0("Betten(frei): ",td$betten_frei),
+            paste0("Betten(belegt): ",td$betten_belegt),
+            paste0("Auslastung(%): ",td$auslastung),
+            paste0("Anteil COVID(%): ",td$pct_covid),
+            sep="<br />")
+        p$set(message = "Generating plot...")
+        future_promise({
+            plot_ly() %>%
+            add_trace(type="choroplethmapbox",
+                      geojson=gj,
+                      name="Auslastung",
+                      locations = td$gemeinde,
+                      featureidkey = "properties.RS",
+                      z = td$auslastung,
+                      colorscale = "Bluered",
+                      text = tx,
+                      hovertemplate = "%{text}<extra></extra>"
+                      ) %>%
                 add_trace(type="choroplethmapbox",
-                          geojson=geojson(),
-                          name="Auslastung",
-                          locations = today()$gemeinde,
+                          geojson=gj,
+                          name="Missing",
+                          locations=missing_county$gemeinde,
                           featureidkey = "properties.RS",
-                          z = today()$auslastung,
-                          colorscale = "Bluered",
-                          text = ~paste(
-                              paste0("<b>",today()$name,"</b>"),
-                              paste0("Kliniken: ", today()$anzahl_standorte),
-                              paste0("Betten(frei): ",today()$betten_frei),
-                              paste0("Betten(belegt): ",today()$betten_belegt),
-                              paste0("Auslastung(%): ",today()$auslastung),
-                              paste0("Anteil COVID(%): ",today()$pct_covid),
+                          color="darkgrey",
+                          z=0,
+                          showscale=F,
+                          text=~paste(
+                              paste0("<b>",missing_county$name,"</b>"),
+                              paste0("Kliniken: ", missing_county$anzahl_standorte),
                               sep="<br />"),
-                          hovertemplate = "%{text}<extra></extra>"
-                          ) %>%
-                layout(mapbox = list(style="carto-positron",
-                                     zoom=6,
-                                     center = list(lon=10.437657,lat=50.9384167))
-                )
-            incProgress(0.5,detail="Loading complete")
-            p
-        })
+                          hovertemplate= "%{text}<extra></extra>") %>%
+            layout(mapbox = list(style="carto-positron",
+                                 zoom=6,
+                                 center = list(lon=10.437657,lat=50.9384167)
+                                 )
+            )
+        })  %>%
+            finally(~p$close())
+            #incProgress(0.5,detail="Loading complete")
+            #p
+        #})
     })
     
     output$hospitalDetailUI <- renderUI({
@@ -444,14 +493,22 @@ server <- function(input, output, session) {
             sections <- getReportingSections(id) %>% bind_rows()
             sections$id <- id
             return(sections)
-        }) %>% bind_rows() %>% group_by(id) %>%
-            summarise(bettenPlankapazitaet = sum(bettenPlankapazitaet),faelleEcmoJahr = sum(faelleEcmoJahr))
+        }) %>% bind_rows()
     })
     
     output$map <- renderPlotly({
-        n <- 3
-        withProgress(message = "Map: loading data", value = 0, {
-            df <- subset(hospitals,community_code==gemeinde())
+        p <- Progress$new()
+        p$set(value = NULL, message = "Loading data...")
+        gm <- gemeinde()
+        future_promise({
+            subset(hospitals,community_code==gm)
+        }) %...>%
+            {
+                p$set(message = " Rendering Map...")
+                .
+            } %...>%
+            {
+                df <- .
             center.lon <- (max(df$krankenhausStandort.position.longitude)+min(df$krankenhausStandort.position.longitude))/2
             center.lat <- (max(df$krankenhausStandort.position.latitude)+min(df$krankenhausStandort.position.latitude))/2
             
@@ -462,7 +519,6 @@ server <- function(input, output, session) {
             zoom_factor <- max(zoom_lat,zoom_long)
             auto_zoom <- -1.35 * log(zoom_factor) + 8
     
-            incProgress(1/n, detail = paste("Map: generating map"))
             fig <- df %>%
                 plot_ly(
                     lat = ~krankenhausStandort.position.latitude,
@@ -486,7 +542,6 @@ server <- function(input, output, session) {
                         sep="<br />")
                     )
             
-            incProgress(2/n, detail = "Map: applying layout")
             fig <- fig %>%
                 layout(
                     mapbox = list(
@@ -500,9 +555,7 @@ server <- function(input, output, session) {
             fig <- fig %>%
                 config(mapboxAccessToken = mapBoxToken, displayModeBar = FALSE)
             
-            incProgress(3/n, detail = "Map: rendering")
-            fig
-        })
+            fig } %>% finally(~p$close())
     })
     
     output$deutschlandMap <- renderPlotly({
@@ -552,12 +605,9 @@ server <- function(input, output, session) {
             id <- data$customdata
             json <- getReportingSections(id) %>%
                 bind_rows() %>%
-                dplyr::select(bezeichnung, faelleEcmoJahr,bettenPlankapazitaet)
-            rbind(json,
-                  summarise(json, bezeichnung="Summe",
-                            faelleEcmoJahr = sum(faelleEcmoJahr),
-                            bettenPlankapazitaet = sum(bettenPlankapazitaet))) %>%
-                rename(Bereich=bezeichnung, `ECMO Fälle/Jahr`=faelleEcmoJahr, `Bettenplankapazität`=bettenPlankapazitaet)
+                dplyr::select(bezeichnung,)
+            rbind(json) %>%
+                rename(Bereich=bezeichnung)
         }
     })
     
@@ -568,12 +618,9 @@ server <- function(input, output, session) {
             id <- data$customdata
             json <- getReportingSections(id) %>%
                 bind_rows() %>%
-                dplyr::select(bezeichnung, faelleEcmoJahr,bettenPlankapazitaet)
-            rbind(json,
-                  summarise(json, bezeichnung="Summe",
-                            faelleEcmoJahr = sum(faelleEcmoJahr),
-                            bettenPlankapazitaet = sum(bettenPlankapazitaet))) %>%
-                rename(Bereich=bezeichnung, `ECMO Fälle/Jahr`=faelleEcmoJahr, `Bettenplankapazität`=bettenPlankapazitaet)
+                dplyr::select(bezeichnung)
+            rbind(json) %>%
+                rename(Bereich=bezeichnung)
         }
     })
     
