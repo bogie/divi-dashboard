@@ -27,7 +27,7 @@ loadPackages <- function(package = NULL, packageList = NULL, silent = TRUE) {
 loadPackages(packageList = c("shiny","plotly","tidyverse","lubridate","rvest",
                              "stringr","openxlsx","shinythemes","jsonlite",
                              "forecast","tidymodels","modeltime","timetk","earth",
-                             "rjson","promises","future"))
+                             "rjson","promises","future","cachem"))
 
 plan(multisession)
 
@@ -146,13 +146,12 @@ diviForecast.mtime <- file.info("diviForecast.feather")$mtime
 diviForecastAccuracy.mtime <- file.info("diviForecastAccuracy.feather")$mtime
 choices <- setNames(gemeindeNamen$gemeinde,gemeindeNamen$name)
 
-
 missing_county <- tibble(bundesland=c(7,9,9,9),
-       name=c("Rhein-Pfalz-Kreis","Landkreis neustadt an der Waldnaab", "Landkreis Coburg","Landkreis Fürth"),
-       gemeinde=c("07338","09374","09473","09573"),
-       anzahl_standorte=0,
-       anzahl_meldebereiche=0,
-       type="Kreis")
+                  name=c("Rhein-Pfalz-Kreis","Landkreis neustadt an der Waldnaab", "Landkreis Coburg","Landkreis Fürth"),
+                  gemeinde=c("07338","09374","09473","09573"),
+                  anzahl_standorte=0,
+                  anzahl_meldebereiche=0,
+                  type="Kreis")
 
 mapBoxToken <- paste(readLines("./mapBoxToken"), collapse="")
 
@@ -275,23 +274,16 @@ server <- function(input, output, session) {
     gemeinde <- reactiveVal(value = "05334")
     tab <- reactiveVal(value = "gemeinde")
     geojson <- reactive({
-        jsonlite::fromJSON("./rkiData/geojson.json",simplifyDataFrame = F)
-        }) %>%
-        bindCache(diviData %>% summarise(max(date,na.rm=T)))
+                jsonlite::fromJSON("./rkiData/geojson.json",simplifyDataFrame = F)
+                }) %>%
+                shiny::bindCache(diviData %>% summarise(max(date,na.rm=T)))
     today <- reactive({
-            diviData %>% filter(date == max(date,na.rm = T)) 
-        # %>%
-        #          add_row(bundesland=7, anzahl_standorte=0, anzahl_meldebereiche=0, type="Kreis", name="Rhein-Pfalz-Kreis",gemeinde="07338", auslastung=0) %>%
-        #          add_row(bundesland=9, anzahl_standorte=0, anzahl_meldebereiche=0, type="Kreis", name="Landkreis Neustadt an der Waldnaab", gemeinde="09374", auslastung=0) %>%
-        #          add_row(bundesland=9, anzahl_standorte=0, anzahl_meldebereiche=0, type="Kreis", name="Landkreis Coburg", gemeinde="09473", auslastung=0) %>%
-        #          add_row(bundesland=9, anzahl_standorte=0, anzahl_meldebereiche=0, type="Kreis", name="Landkreis Fürth", gemeinde="09573", auslastung=0)
-            #    07338 Rhein-Pfalz-Kreis
-            #    09374 Landkreis Neustadt an der Waldnaab
-            #    09473 Landkreis_Coburg
-            #    09573
-            
-        }) %>%
-        bindCache(diviData %>% summarise(max(date,na.rm=T)))
+                diviData %>% filter(date == max(date,na.rm = T)) 
+            }) %>%
+            shiny::bindCache(diviData %>% summarise(max(date,na.rm=T)))
+    
+    mc <- reactive({ missing_county }) %>%
+        shiny::bindCache(diviData %>% summarise(max(date,na.rm=T)))
     
     if(file.info("divi.feather")$mtime>divi.mtime) {
         print("divi.feather changed on disk, reloading")
@@ -382,6 +374,8 @@ server <- function(input, output, session) {
         
         td <- today()
         gj <- geojson()
+        mic <- mc()
+        
         tx <- paste(
             paste0("<b>",td$name,"</b>"),
             paste0("Kliniken: ", td$anzahl_standorte),
@@ -390,6 +384,12 @@ server <- function(input, output, session) {
             paste0("Auslastung(%): ",td$auslastung),
             paste0("Anteil COVID(%): ",td$pct_covid),
             sep="<br />")
+        
+        tx2 <- paste(
+            paste0("<b>",mic$name,"</b>"),
+            paste0("Kliniken: ", mic$anzahl_standorte),
+            sep="<br />")
+        
         p$set(message = "Generating plot...")
         future_promise({
             plot_ly() %>%
@@ -406,15 +406,12 @@ server <- function(input, output, session) {
                 add_trace(type="choroplethmapbox",
                           geojson=gj,
                           name="Missing",
-                          locations=missing_county$gemeinde,
+                          locations=mic$gemeinde,
                           featureidkey = "properties.RS",
                           color="darkgrey",
                           z=0,
                           showscale=F,
-                          text=~paste(
-                              paste0("<b>",missing_county$name,"</b>"),
-                              paste0("Kliniken: ", missing_county$anzahl_standorte),
-                              sep="<br />"),
+                          text=tx2,
                           hovertemplate= "%{text}<extra></extra>") %>%
             layout(mapbox = list(style="carto-positron",
                                  zoom=6,
@@ -729,7 +726,7 @@ server <- function(input, output, session) {
                                           'Altersgruppe: %{text}',
                                           sep = "<br>")
                       ) %>%
-            group_by(Altersgruppe) %>%
+            plotly::group_by(Altersgruppe) %>%
             plotly::layout(
                 xaxis=list(title="Datum"),
                 yaxis=list(title="Fallzahl",side="left"),
@@ -818,7 +815,7 @@ server <- function(input, output, session) {
                 y=~sum_faelle_covid_aktuell,
                 color=~as.factor(bundesland),
                 name=~blNames[bundesland]) %>%
-            group_by(bundesland) %>%
+            plotly::group_by(bundesland) %>%
             add_lines() %>%
             plotly::layout(
                 xaxis=list(title="Datum"),
