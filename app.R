@@ -392,8 +392,14 @@ server <- function(input, output, session) {
         
         p$set(message = "Generating plot...")
         future_promise({
-            plot_ly() %>%
-            add_trace(type="choroplethmapbox",
+            plot_ly(type="choroplethmapbox") %>%
+            layout(mapbox = list(style="carto-positron",
+                                 zoom=6,
+                                 center = list(lon=10.437657,lat=50.9384167)))
+                }) %...>%
+                {
+                    add_trace(p = .,
+                              type="choroplethmapbox",
                       geojson=gj,
                       name="Auslastung",
                       locations = td$gemeinde,
@@ -402,8 +408,9 @@ server <- function(input, output, session) {
                       colorscale = "Bluered",
                       text = tx,
                       hovertemplate = "%{text}<extra></extra>"
-                      ) %>%
-                add_trace(type="choroplethmapbox",
+                      )} %...>%
+                {
+                add_trace(.,type="choroplethmapbox",
                           geojson=gj,
                           name="Missing",
                           locations=mic$gemeinde,
@@ -412,13 +419,8 @@ server <- function(input, output, session) {
                           z=0,
                           showscale=F,
                           text=tx2,
-                          hovertemplate= "%{text}<extra></extra>") %>%
-            layout(mapbox = list(style="carto-positron",
-                                 zoom=6,
-                                 center = list(lon=10.437657,lat=50.9384167)
-                                 )
-            )
-        })  %>%
+                          hovertemplate= "%{text}<extra></extra>") 
+                } %>%
             finally(~p$close())
             #incProgress(0.5,detail="Loading complete")
             #p
