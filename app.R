@@ -726,7 +726,6 @@ server <- function(input, output, session) {
                                           'Altersgruppe: %{text}',
                                           sep = "<br>")
                       ) %>%
-            plotly::group_by(Altersgruppe) %>%
             plotly::layout(
                 xaxis=list(title="Datum"),
                 yaxis=list(title="Fallzahl",side="left"),
@@ -809,18 +808,18 @@ server <- function(input, output, session) {
                                                         #sum_occup_beds = sum(betten_belegt),
                                                         sum_faelle_covid_aktuell = sum(faelle_covid_aktuell)
                                                         #sum_faelle_covid_aktuell_beatmet = sum(faelle_covid_aktuell_beatmet)
-                                                        )
+                                                        ) %>% ungroup()
+        
         plot_ly(dt,
                 x=~date,
                 y=~sum_faelle_covid_aktuell,
                 color=~as.factor(bundesland),
                 name=~blNames[bundesland]) %>%
-            plotly::group_by(bundesland) %>%
             add_lines() %>%
             plotly::layout(
                 xaxis=list(title="Datum"),
                 yaxis=list(title="Fälle"),
-                margin=list(l=40,r=40,t=0,b=0)
+                margin=list(l=40,r=40,b=0,t=0)
             )
     })
     
