@@ -67,7 +67,9 @@ createForecastData <- function() {
     print("Creating data for forecasting")
     diviSummed <- diviData %>% group_by(date) %>%
         summarise(sum_intub = sum(faelle_covid_aktuell_beatmet),
-                  sum_covid = sum(faelle_covid_aktuell)) %>%
+                  sum_covid = sum(faelle_covid_aktuell),
+                  sum_newCases = sum(AnzFallErkrankung,na.rm = T),
+                  sum_cumCases = sum(KumFall,na.rm=T)) %>%
         ungroup() %>%
         filter(!is.na(sum_intub) & !is.na(sum_covid)) %>%
         mutate(lockdown_level = factor(
@@ -125,11 +127,16 @@ createForecasts <- function(df, varname) {
     model_spec_mars <- mars(mode = "regression") %>%
         set_engine("earth")
     
-    recipe_spec <- recipe(as.formula(paste0(varname, "~ date + lockdown_level")), data = training(splits)) %>%
+    recipe_spec <- recipe(as.formula(paste0(varname, "~ date + lockdown_level")),
+                          data = training(splits)) %>%
         step_date(date, features = "month", ordinal = FALSE) %>%
         step_mutate(date_num = as.numeric(date)) %>%
         step_normalize(date_num) %>%
         step_rm(date)
+    # %>%
+    #     step_lag(sum_newCases,lag=14) %>%
+    #     step_naomit(lag_14_sum_newCases) %>%
+    #     step_rm(sum_newCases)
     
     wflw_fit_mars <- workflow() %>%
         add_recipe(recipe_spec) %>%
@@ -156,11 +163,18 @@ createForecasts <- function(df, varname) {
     refit_tbl <- calibration_tbl %>%
         modeltime_refit(df)
     
-    future_tbl <- df %>% future_frame(.length_out="2 weeks") %>% mutate(lockdown_level = factor(3))
+    future_tbl <- df %>% future_frame(.length_out="2 weeks") %>%
+        left_join(
+            select(
+                mutate(df,date=date+days(14)),
+                date,
+                sum_newCases,
+                lockdown_level),
+            by="date")
     
     forecast_tbl <- refit_tbl %>% modeltime_forecast(actual_data=df,new_data = future_tbl)
     forecast_tbl <- forecast_tbl %>%
-        left_join(df %>% select(date,lockdown_level) %>%
+        left_join(df %>% select(date,sum_newCases,lockdown_level) %>%
                       rbind(future_tbl),by=c(".index"="date"))
     
     model_id_best <- accuracy_tbl %>% filter(.model_id != 4) %>%
@@ -199,13 +213,14 @@ diviData$faelle_covid_aktuell_im_bundesland <- NULL
 diviData$faelle_covid_aktuell_beatmet <- ifelse(is.na(diviData$faelle_covid_aktuell_beatmet),diviData$faelle_covid_aktuell_invasiv_beatmet,diviData$faelle_covid_aktuell_beatmet)
 diviData$faelle_covid_aktuell_invasiv_beatmet <- NULL
 
-diviData <- diviData %>%
-    mutate(gemeinde = ifelse(str_length(gemeinde) == 4, str_c("0",gemeinde),gemeinde))
+# diviData <- diviData %>%
+#     mutate(gemeinde = ifelse(str_length(gemeinde) == 4, str_c("0",gemeinde),gemeinde))
 
 diviData <- diviData %>%
     mutate_at(c("anzahl_standorte","betten_frei","betten_belegt",
                 "anzahl_meldebereiche","faelle_covid_aktuell","faelle_covid_aktuell_beatmet"),
               as.numeric) %>%
+    mutate(date=as.Date(date)) %>%
     # mutate(gemeinde=as.numeric(gemeinde)) %>%
     left_join(kreise,by=c("gemeinde"="key"))
 
@@ -217,6 +232,11 @@ diviData <- diviData %>%
         covid_per_100k = round(faelle_covid_aktuell/(pop_all/100000)),
         covid_per_100k_intubated = round(faelle_covid_aktuell_beatmet/(pop_all/100000))
         )
+
+rkiHistory <- arrow::read_feather("rkiData/rkiHistory.feather")
+
+diviData <- diviData %>%
+    left_join(rkiHistory,by=c("date","gemeinde"))
 
 gemeindeNamen <- diviData %>% dplyr::select(gemeinde, name) %>% distinct(gemeinde,.keep_all = TRUE)
 
@@ -230,6 +250,20 @@ divi_forecast_intub <- createForecasts(diviSummed,"sum_intub")
 
 diviForecast <- tibble(total=divi_forecast_total$data,intub=divi_forecast_intub$data)
 accuracyTables <- tibble(total=divi_forecast_total$accuracy,intub=divi_forecast_intub$accuracy)
+
+## Geojson
+kreise.geojson <- rjson::fromJSON(file = "json_data/Kreisgrenzen_2017_mit_Einwohnerzahl.geojson")
+
+kreise.features <- lapply(kreise.geojson$features, function(feature) {
+    props <- diviData %>% filter(gemeinde==feature$properties$RS & date==max(date)) %>%
+        select(anzahl_standorte,betten_frei,betten_belegt,anzahl_meldebereiche, faelle_covid_aktuell, faelle_covid_aktuell_beatmet,
+               betten_belegt_nur_erwachsen,betten_frei_nur_erwachsen) %>% append(feature$properties,.)
+    feature$properties <- props
+    return(feature)
+})
+
+kreise.geojson$features <- kreise.features
+jsonlite::write_json(kreise.geojson,path = "json_data/divi.geojson")
 
 arrow::write_feather(diviData,"divi.feather")
 arrow::write_feather(gemeindeNamen,"gemeinden.feather")

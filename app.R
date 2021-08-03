@@ -24,10 +24,29 @@ loadPackages <- function(package = NULL, packageList = NULL, silent = TRUE) {
     }
 }
 
-loadPackages(packageList = c("shiny","plotly","tidyverse","lubridate","rvest",
-                             "stringr","openxlsx","shinythemes","jsonlite",
-                             "forecast","tidymodels","modeltime","timetk","earth",
-                             "rjson","promises","future","cachem"))
+# loadPackages(packageList = c("shiny","plotly","tidyverse","lubridate","rvest",
+#                              "stringr","openxlsx","shinythemes","jsonlite",
+#                              "forecast","tidymodels","modeltime","timetk","earth",
+#                              "rjson","promises","future","cachem"))
+
+library(shiny)
+library(plotly)
+library(tidyverse)
+library(lubridate)
+library(rvest)
+library(stringr)
+library(openxlsx)
+library(shinythemes)
+library(jsonlite)
+library(forecast)
+library(tidymodels)
+library(modeltime)
+library(timetk)
+library(earth)
+library(rjson)
+library(promises)
+library(future)
+library(cachem)
 
 plan(multisession)
 
@@ -40,7 +59,10 @@ if(!file.exists("divi.feather") || !file.exists("gemeinden.feather") ||
     source("./updateDIVIdata.R",encoding = "UTF-8")
 }
 
-if(!file.exists("rkiData/rki.feather")) {
+if(!file.exists("rkiData/rki.feather") ||
+   !file.exists("rkiData/rkiHistory.feather") ||
+   !file.exists("rkiData/rkiR.feather") ||
+   !file.exists("rkiData/rkiKeyData.feather")) {
     source("./UpdateRKI.R", encoding = "UTF-8")
 }
 
@@ -138,8 +160,9 @@ diviForecast <- arrow::read_feather("diviForecast.feather")
 diviForecastAccuracy <- arrow::read_feather("diviForecastAccuracy.feather")
 gemeindeNamen <- arrow::read_feather("gemeinden.feather")
 rkiData <- arrow::read_feather("rkiData/rki.feather")
+rkiHistory <- arrow::read_feather("rkiData/rkiHistory.feather")
 
-
+rkiHistory.mtime <- file.info("rkiData/rkiHistory.feather")$mtime
 rki.mtime <- file.info("rkiData/rki.feather")$mtime
 divi.mtime <- file.info("divi.feather")$mtime
 diviForecast.mtime <- file.info("diviForecast.feather")$mtime
@@ -188,6 +211,22 @@ ui <- navbarPage(id = "page", theme=shinytheme("darkly"),
     # Application title
     title="COVID-19 Dashboard",
     tags$head(
+        HTML(
+            "
+          <script>
+          var socket_timeout_interval
+          var n = 0
+          $(document).on('shiny:connected', function(event) {
+          socket_timeout_interval = setInterval(function(){
+          Shiny.onInputChange('count', n++)
+          }, 15000)
+          });
+          $(document).on('shiny:disconnected', function(event) {
+          clearInterval(socket_timeout_interval)
+          });
+          </script>
+          "
+        ),
         tags$meta(name="author",content="Bojan Hartmann"),
         tags$meta(name="keywords", content="COVID-19,DIVI,RKI,SARS-CoV-2,Dashboard"),
         tags$meta(name="description",content="Inoffizielles COVID-19 Dashboard basierend auf DIVI und RKI Daten"),
@@ -197,6 +236,7 @@ ui <- navbarPage(id = "page", theme=shinytheme("darkly"),
         tags$meta(property="og:locale",content="de_DE"),
         tags$meta(property="og:description",content="Inoffizielles COVID-19 Dashboard basierend auf DIVI und RKI Daten")
     ),
+    textOutput("keepAlive"),
     tabPanel(title="Gemeinden",value="gemeinde",
         fluidRow(
             column(width = 4, uiOutput("filterUI"),
@@ -305,9 +345,15 @@ server <- function(input, output, session) {
     }
     
     if(file.info("rkiData/rki.feather")$mtime>rki.mtime) {
-        print("divi.feather changed on disk, reloading")
+        print("rki.feather changed on disk, reloading")
         rkiData <- arrow::read_feather("rkiData/rki.feather")
         rki.mtime <- file.info("rkiData/rki.feather")$mtime
+    }
+    
+    if(file.info("rkiData/rkiHistory.feather")$mtime>rkiHistory.mtime) {
+        print("rkiHistory.feather changed on disk, reloading")
+        rkiHistory <- arrow::read_feather("rkiData/rkiHistory.feather")
+        rkiHistory.mtime <- file.info("rkiData/rkiHistory.feather")$mtime
     }
 
     if(checkFileCache("json_data/hospitals.json")) {
@@ -362,13 +408,17 @@ server <- function(input, output, session) {
         restore(input$navigatedTo)
     })
     
+    output$keepAlive <- renderText({
+        req(input$count)
+        paste("keep alive ", input$count)
+    })
+    
     output$filterUI <- renderUI({
         selectInput("gemeinde",h3("Gemeinde auswählen"),
                                      choices = choices, selected = isolate(gemeinde()), selectize = TRUE)
     })
     
     output$choropleth <- renderPlotly({
-        #withProgress(message = "Loading Map",value = 0,{
         p <- Progress$new()
         p$set(value = NULL, message = "Loading data...")
         
@@ -392,14 +442,8 @@ server <- function(input, output, session) {
         
         p$set(message = "Generating plot...")
         future_promise({
-            plot_ly(type="choroplethmapbox") %>%
-            layout(mapbox = list(style="carto-positron",
-                                 zoom=6,
-                                 center = list(lon=10.437657,lat=50.9384167)))
-                }) %...>%
-                {
-                    add_trace(p = .,
-                              type="choroplethmapbox",
+            plot_ly(type="choroplethmapbox")
+                }) %...>% add_trace(type="choroplethmapbox",
                       geojson=gj,
                       name="Auslastung",
                       locations = td$gemeinde,
@@ -408,9 +452,8 @@ server <- function(input, output, session) {
                       colorscale = "Bluered",
                       text = tx,
                       hovertemplate = "%{text}<extra></extra>"
-                      )} %...>%
-                {
-                add_trace(.,type="choroplethmapbox",
+                      ) %...>%
+                add_trace(type="choroplethmapbox",
                           geojson=gj,
                           name="Missing",
                           locations=mic$gemeinde,
@@ -419,12 +462,10 @@ server <- function(input, output, session) {
                           z=0,
                           showscale=F,
                           text=tx2,
-                          hovertemplate= "%{text}<extra></extra>") 
-                } %>%
-            finally(~p$close())
-            #incProgress(0.5,detail="Loading complete")
-            #p
-        #})
+                          hovertemplate= "%{text}<extra></extra>") %...>%
+                layout(mapbox = list(style="carto-positron",
+                                     zoom=6,
+                                     center = list(lon=10.437657,lat=50.9384167))) %>% finally(~p$close())
     })
     
     output$hospitalDetailUI <- renderUI({
@@ -661,6 +702,10 @@ server <- function(input, output, session) {
                 summarise(cases=sum(cases),deaths=sum(deaths)) %>%
                 ungroup() %>% arrange(Refdatum) %>%
                 mutate(cumCases=cumsum(cases),cumDeaths=cumsum(deaths))
+
+            
+            df2 <- rkiHistory %>% filter(gemeinde==gemeinde()) %>%
+                arrange(date)
             
             incProgress(1/n, detail = paste("RKI plot: generating plot"))
             p <- df %>% plot_ly(type="scatter",mode="lines") %>%
@@ -674,8 +719,17 @@ server <- function(input, output, session) {
                           y=~cumDeaths,
                           hovertemplate = paste0('Datum: %{x}','<br>Fälle: %{y}'),
                           name="Tote",
-                          yaxis="y2",
+                          yaxis="y",
                           line=list(color=toRGB("red"))) %>%
+                add_trace(x=~date,
+                          y=~AnzFallErkrankung,
+                          hovertemplate = paste0('Datum: %{x}','<br>Neue Fälle: %{y}'),
+                          name="Neue Fälle",
+                          yaxis="y2",
+                          marker=list(color=toRGB("grey",alpha=0.6)),
+                          type="bar",
+                          data=df2
+                          ) %>%
                 add_trace(x=~date,
                           y=~faelle_covid_aktuell,
                           data=filter(diviData,gemeinde==gemeinde()),
