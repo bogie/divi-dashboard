@@ -29,7 +29,9 @@ RUN R -e "install.packages(c('shiny','plotly','tidyverse','lubridate','rvest',
                              'rjson','promises','future','cachem','arrow','RPostgreSQL','vroom'), repos='https://cloud.r-project.org/')"
 
 # copy the app to the image
-RUN git clone "https://github.com/bogie/divi-dashboard.git" /root/diviDashboard
+RUN mkdir /root/diviDashboard
+#RUN git clone "https://github.com/bogie/divi-dashboard.git" /root/diviDashboard
+COPY app /root/diviDashboard
 
 COPY Rprofile.site /usr/lib/R/etc/
 

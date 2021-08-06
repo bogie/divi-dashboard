@@ -1,0 +1,238 @@
+---
+title: "Test"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidymodels)
+library(modeltime)
+library(tidyverse)
+library(lubridate)
+library(timetk)
+```
+
+```{r}
+germany <- diviData %>% group_by(date) %>% summarise(sum_intub = sum(faelle_covid_aktuell_beatmet)) %>% ungroup()
+
+germany_multi <- germany %>%
+  filter(!is.na(sum_intub)) %>%
+  mutate(
+    lockdown_level = factor(case_when(
+        date <= ymd("2020-03-23") ~ 0,
+        date <= ymd("2020-05-03") ~ 3,
+        date <= ymd("2020-11-02") ~ 1,
+        date <= ymd("2020-12-16") ~ 2,
+        date > ymd("2020-12-16") ~ 3
+    ))
+)
+
+germany_table <- germany_multi %>%
+    filter(!is.na(sum_intub)) %>%
+  rename(value=sum_intub, xreg=lockdown_level)
+
+germany_table %>% plot_time_series(date,value)
+
+splits <- germany_table %>% time_series_split(date_var = date,assess = "4 weeks", cumulative = T)
+
+splits %>% tk_time_series_cv_plan() %>%
+    plot_time_series_cv_plan(date,value)
+```
+
+```{r}
+model_fit_arima_no_boost <- arima_reg() %>%
+  set_engine(engine="auto_arima") %>%
+  fit(value ~ date + xreg, data= training(splits))
+```
+
+
+```{r}
+model_fit_arima_boosted <- arima_boost(
+    min_n = 2,
+    learn_rate = 0.015
+) %>%
+    set_engine(engine = "auto_arima_xgboost") %>%
+    fit(value ~ date + as.numeric(date) + factor(month(date, label = TRUE), levels=c("Jan","Feb","Mrz","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"), ordered = F) + xreg,
+        data = training(splits))
+```
+```{r}
+model_fit_ets <- exp_smoothing() %>%
+    set_engine(engine = "ets") %>%
+    fit(value ~ date + xreg, data = training(splits))
+```
+```{r}
+model_fit_prophet <- prophet_reg() %>%
+    set_engine(engine = "prophet") %>%
+    fit(value ~ date + xreg, data = training(splits))
+```
+
+```{r}
+model_fit_lm <- linear_reg() %>%
+    set_engine("lm") %>%
+    fit(value ~ as.numeric(date) + factor(month(date, label = TRUE), levels=c("Jan","Feb","Mrz","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"), ordered = FALSE) + xreg,
+        data = training(splits))
+```
+
+```{r}
+model_spec_mars <- mars(mode = "regression") %>%
+    set_engine("earth")
+
+recipe_spec <- recipe(value ~ date + xreg, data = training(splits)) %>%
+    step_date(date, features = "month", ordinal = FALSE) %>%
+    step_mutate(date_num = as.numeric(date)) %>%
+    step_normalize(date_num) %>%
+    step_rm(date)
+  
+wflw_fit_mars <- workflow() %>%
+    add_recipe(recipe_spec) %>%
+    add_model(model_spec_mars) %>%
+    fit(training(splits))
+```
+
+```{r}
+models_tbl <- modeltime_table(
+  model_fit_arima_no_boost,
+  model_fit_arima_boosted,
+  model_fit_ets,
+  model_fit_prophet,
+  model_fit_lm,
+    wflw_fit_mars
+)
+
+calibration_tbl <- models_tbl %>%
+    modeltime_calibrate(testing(splits))
+
+
+calibration_tbl %>%
+    modeltime_forecast(
+        new_data    = testing(splits),
+        actual_data = germany_table,
+        keep_data = TRUE
+    ) %>%
+    plot_modeltime_forecast(
+      .legend_max_width = 25, # For mobile screens
+      .interactive      = TRUE
+    )
+
+```
+
+```{r}
+calibration_tbl %>%
+    modeltime_accuracy() %>%
+    table_modeltime_accuracy(
+        .interactive = TRUE
+    )
+```
+
+```{r}
+refit_tbl <- calibration_tbl %>%
+    modeltime_refit(germany_table)
+
+future_tbl <- germany_table %>% future_frame(.length_out="2 weeks") %>% mutate(xreg = factor(3))
+
+refit_tbl %>% modeltime_forecast(actual_data=germany_table,new_data = future_tbl) %>% plot_modeltime_forecast(.x_lab = "Date",.y_lab = "Infected patients")
+
+# refit_tbl %>%
+#     modeltime_forecast(h = "2 weeks",actual_data = germany_table, new_data = future_tbl, keep_data = TRUE) %>%
+#     plot_modeltime_forecast(
+#       .legend_max_width = 25, # For mobile screens
+#       .interactive      = TRUE
+#     )
+```
+
+
+```{r}
+recipe_spec <- recipe(value ~ date + lockdown_level, training(splits)) %>%
+    step_timeseries_signature(date) %>%
+    step_fourier(date, period=365, K = 5) %>%
+    step_dummy(all_nominal())
+
+recipe_spec %>% prep() %>% juice()
+```
+
+```{r}
+model_spec_pb <- prophet_boost(growth = "linear") %>%
+    set_engine("prophet_xgboost")
+
+# workflow_fit_pb <- workflow() %>%
+#     add_model(model_spec_pb) %>%
+#     add_recipe(recipe_spec) %>%
+#     fit(training(splits))
+
+workflow_fit_pb <- model_spec_pb %>%
+    fit(value ~ date + lockdown_level, data = training(splits))
+
+
+workflow_fit_pb
+```
+
+
+```{r}
+model_spec_arima_boost <- arima_boost() %>%
+    set_engine("auto_arima_xgboost")
+
+workflow_fit_ab <- workflow() %>%
+    add_model(model_spec_arima_boost) %>%
+    add_recipe(recipe_spec) %>%
+    fit(training(splits))
+```
+
+
+```{r}
+model_spec_rf <- rand_forest(trees = 500, min_n = 50) %>%
+  set_engine("randomForest")
+workflow_fit_rf <- workflow() %>%
+  add_model(model_spec_rf) %>%
+  add_recipe(recipe_spec %>% step_rm(date)) %>%
+  fit(training(splits))
+```
+
+
+```{r}
+model_fit_arima <- arima_reg() %>%
+  set_engine("auto_arima") %>%
+  fit(value ~ date, training(splits))
+```
+
+```{r}
+model_spec_glmnet <- linear_reg(penalty = 0.01, mixture = 0.5) %>%
+  set_engine("glmnet")
+
+workflow_fit_glmnet <- workflow() %>%
+  add_model(model_spec_glmnet) %>%
+  add_recipe(recipe_spec %>% step_rm(date)) %>%
+  fit(training(splits))
+```
+
+
+
+```{r}
+model_table <- modeltime_table(
+    workflow_fit_pb,
+    workflow_fit_rf,
+    model_fit_arima,
+    workflow_fit_glmnet,
+    workflow_fit_ab
+)
+
+model_table
+```
+
+```{r}
+calibration_table <- model_table %>%
+  modeltime_calibrate(testing(splits))
+calibration_table %>%
+    modeltime_accuracy()
+
+calibration_table %>%
+    modeltime_forecast(actual_data = germany_table) %>%
+    plot_modeltime_forecast()
+```
+
+```{r}
+calibration_table  %>%
+    modeltime_refit(germany_table) %>%
+    modeltime_forecast(h= "1 month", actual_data = germany_table) %>%
+    plot_modeltime_forecast()
+```
+
