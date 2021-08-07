@@ -29,7 +29,7 @@ downloadDIVIdata <- function(start=0,end=60) {
     diviUrls <- getDiviDataArchiveUrls(start,end)
     newFiles <- lapply(diviUrls, function(x) {
         splts <- str_split(x,"/",simplify = TRUE)
-        filename <- paste0("./rawData/",splts[7],".csv")
+        filename <- paste0("./data/rawData/",splts[7],".csv")
         if(!file.exists(filename)) {
             download.file(x,filename)
             return(filename)
@@ -47,10 +47,10 @@ getLatestDIVIdata <- function() {
         as.character.Date(.,format="%Y-%m-%d-%H-%M")
     fname <- str_c(fname,".csv")
     print(str_c("Downloaded new DIVI data with filename: ",fname))
-    write.csv(csv,file=str_c("./rawData/divi-intensivregister-",fname))
+    write.csv(csv,file=str_c("./data/rawData/divi-intensivregister-",fname))
 }
 
-if(!file.exists("zips.feather") | !file.exists("zips.rds")) {
+if(!file.exists("data/zips.feather")) {
     zips <- read.csv("zipcodes.de.csv",
                      fileEncoding = "UTF-8",
                      colClasses = c("character","character","character",
@@ -58,8 +58,7 @@ if(!file.exists("zips.feather") | !file.exists("zips.rds")) {
                                     "character","character","numeric","numeric"))
     
     filteredZipcodes <- zips %>% distinct(zipcode,.keep_all = TRUE)
-    saveRDS(filteredZipcodes,"zips.rds")
-    arrow::write_feather(filteredZipcodes,"zips.feather")
+    arrow::write_feather(filteredZipcodes,"data/zips.feather")
 }
 
 
@@ -194,17 +193,21 @@ kreise <- kreise %>% filter(!is.na(name) & !is.na(key))
 
 
 getLatestDIVIdata()
-fileList <- list.files("./rawData")
+fileList <- list.files("./data/rawData")
 
 diviData <- lapply(fileList, function(file) {
     dateString <- str_sub(file,23) %>% str_replace(.,"-2.csv","")
     fileDate <- as_datetime(dateString,format="%Y-%m-%d-%H-%M")
-    csv <- read.csv(paste0("./rawData/",file),colClasses = "character")
+    csv <- read.csv(paste0("./data/rawData/",file),colClasses = "character")
     csv$date <- fileDate
     csv$X <- NULL
     return(csv)
 }) %>% bind_rows(.)
 
+diviData$gemeindeschluessel <- ifelse(
+                                          str_length(diviData$gemeindeschluessel)==4 & !str_starts(diviData$gemeindeschluessel,"0"),
+                                              str_c("0",diviData$gemeindeschluessel),
+                                              diviData$gemeindeschluessel)
 diviData$gemeinde <- ifelse(is.na(diviData$gemeindeschluessel),diviData$kreis,diviData$gemeindeschluessel)
 diviData$bundesland <- as.numeric(diviData$bundesland)
 diviData$kreis <- NULL
@@ -233,7 +236,7 @@ diviData <- diviData %>%
         covid_per_100k_intubated = round(faelle_covid_aktuell_beatmet/(pop_all/100000))
         )
 
-rkiHistory <- arrow::read_feather("rkiData/rkiHistory.feather")
+rkiHistory <- arrow::read_feather("data/rkiHistory.feather")
 
 diviData <- diviData %>%
     left_join(rkiHistory,by=c("date","gemeinde"))
@@ -252,7 +255,7 @@ diviForecast <- tibble(total=divi_forecast_total$data,intub=divi_forecast_intub$
 accuracyTables <- tibble(total=divi_forecast_total$accuracy,intub=divi_forecast_intub$accuracy)
 
 ## Geojson
-kreise.geojson <- rjson::fromJSON(file = "json_data/Kreisgrenzen_2017_mit_Einwohnerzahl.geojson")
+kreise.geojson <- rjson::fromJSON(file = "Kreisgrenzen_2017_mit_Einwohnerzahl.geojson")
 
 kreise.features <- lapply(kreise.geojson$features, function(feature) {
     props <- diviData %>% filter(gemeinde==feature$properties$RS & date==max(date)) %>%
@@ -263,10 +266,10 @@ kreise.features <- lapply(kreise.geojson$features, function(feature) {
 })
 
 kreise.geojson$features <- kreise.features
-jsonlite::write_json(kreise.geojson,path = "json_data/divi.geojson")
+jsonlite::write_json(kreise.geojson,path = "data/json_data/divi.geojson")
 
-arrow::write_feather(diviData,"divi.feather")
-arrow::write_feather(gemeindeNamen,"gemeinden.feather")
-arrow::write_feather(diviForecast,"diviForecast.feather")
-arrow::write_feather(accuracyTables,"diviForecastAccuracy.feather")
+arrow::write_feather(diviData,"data/divi.feather")
+arrow::write_feather(gemeindeNamen,"data/gemeinden.feather")
+arrow::write_feather(diviForecast,"data/diviForecast.feather")
+arrow::write_feather(accuracyTables,"data/diviForecastAccuracy.feather")
 

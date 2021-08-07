@@ -54,15 +54,15 @@ options(Ncpus = 6,encoding = "UTF-8")
 shinyOptions(cache = cachem::cache_mem(max_size=1000*1024^2))
 
 Sys.setlocale("LC_CTYPE","german")
-if(!file.exists("divi.feather") || !file.exists("gemeinden.feather") ||
-   !file.exists("diviForecast.feather") || !file.exists("diviForecastAccuracy.feather")) {
+if(!file.exists("data/divi.feather") || !file.exists("data/gemeinden.feather") ||
+   !file.exists("data/diviForecast.feather") || !file.exists("data/diviForecastAccuracy.feather")) {
     source("./updateDIVIdata.R",encoding = "UTF-8")
 }
 
-if(!file.exists("rkiData/rki.feather") ||
-   !file.exists("rkiData/rkiHistory.feather") ||
-   !file.exists("rkiData/rkiR.feather") ||
-   !file.exists("rkiData/rkiKeyData.feather")) {
+if(!file.exists("data/rki.feather") ||
+   !file.exists("data/rkiHistory.feather") ||
+   !file.exists("data/rkiR.feather") ||
+   !file.exists("data/rkiKeyData.feather")) {
     source("./UpdateRKI.R", encoding = "UTF-8")
 }
 
@@ -93,10 +93,10 @@ checkFileCache <- function(fname, cacheTime = hours(1)) {
 }
 
 loadHospitalData <- function() {
-    if(checkFileCache("json_data/hospitals.json",hours(2))) {
-        download.file("https://www.intensivregister.de/api/public/intensivregister","json_data/hospitals.json")
+    if(checkFileCache("data/json_data/hospitals.json",hours(2))) {
+        download.file("https://www.intensivregister.de/api/public/intensivregister","data/json_data/hospitals.json")
     }
-    hospitals <- jsonlite::fromJSON("json_data/hospitals.json",flatten = TRUE)$data
+    hospitals <- jsonlite::fromJSON("data/json_data/hospitals.json",flatten = TRUE)$data
     hospitals <- hospitals %>%
         left_join(dplyr::select(filteredZipcodes,zipcode,community_code),by=c("krankenhausStandort.plz"="zipcode"))
     
@@ -117,7 +117,7 @@ getReportingSections <- function(hospital) {
     url <- str_c("https://www.intensivregister.de/api/public/stammdaten/krankenhausstandort/",
                  hospital,
                  "/meldebereiche")
-    fname <- str_c("json_data/meldebereiche/",hospital,".json")
+    fname <- str_c("data/json_data/meldebereiche/",hospital,".json")
     mtime <- file.info(fname)$mtime
     
     if(checkFileCache(fname)) {
@@ -129,7 +129,7 @@ getReportingSections <- function(hospital) {
 }
 
 #filteredZipcodes <- readRDS("zips.rds")
-filteredZipcodes <- arrow::read_feather("zips.feather")
+filteredZipcodes <- arrow::read_feather("data/zips.feather")
 blNames <- c("Schleswig-Holstein",
              "Hamburg",
              "Niedersachsen",
@@ -155,18 +155,17 @@ hospitals <- loadHospitalData()
 # diviData <- fix.encoding(diviData)
 # gemeindeNamen <- fix.encoding(gemeindeNamen)
 
-diviData <- arrow::read_feather("divi.feather")
-diviForecast <- arrow::read_feather("diviForecast.feather")
-diviForecastAccuracy <- arrow::read_feather("diviForecastAccuracy.feather")
-gemeindeNamen <- arrow::read_feather("gemeinden.feather")
-rkiData <- arrow::read_feather("rkiData/rki.feather")
-rkiHistory <- arrow::read_feather("rkiData/rkiHistory.feather")
-
-rkiHistory.mtime <- file.info("rkiData/rkiHistory.feather")$mtime
-rki.mtime <- file.info("rkiData/rki.feather")$mtime
-divi.mtime <- file.info("divi.feather")$mtime
-diviForecast.mtime <- file.info("diviForecast.feather")$mtime
-diviForecastAccuracy.mtime <- file.info("diviForecastAccuracy.feather")$mtime
+diviData <- arrow::read_feather("data/divi.feather")
+diviForecast <- arrow::read_feather("data/diviForecast.feather")
+diviForecastAccuracy <- arrow::read_feather("data/diviForecastAccuracy.feather")
+gemeindeNamen <- arrow::read_feather("data/gemeinden.feather")
+rkiData <- arrow::read_feather("data/rki.feather")
+rkiHistory <- arrow::read_feather("data/rkiHistory.feather")
+rkiHistory.mtime <- file.info("data/rkiHistory.feather")$mtime
+rki.mtime <- file.info("data/rki.feather")$mtime
+divi.mtime <- file.info("data/divi.feather")$mtime
+diviForecast.mtime <- file.info("data/diviForecast.feather")$mtime
+diviForecastAccuracy.mtime <- file.info("data/diviForecastAccuracy.feather")$mtime
 choices <- setNames(gemeindeNamen$gemeinde,gemeindeNamen$name)
 
 missing_county <- tibble(bundesland=c(7,9,9,9),
@@ -176,7 +175,7 @@ missing_county <- tibble(bundesland=c(7,9,9,9),
                   anzahl_meldebereiche=0,
                   type="Kreis")
 
-mapBoxToken <- paste(readLines("./mapBoxToken"), collapse="")
+mapBoxToken <- paste(readLines("./data/mapBoxToken"), collapse="")
 
 plotChoreo <- function() {
     today <- diviData %>% filter(date == max(date,na.rm = T))
@@ -314,7 +313,7 @@ server <- function(input, output, session) {
     gemeinde <- reactiveVal(value = "05334")
     tab <- reactiveVal(value = "gemeinde")
     geojson <- reactive({
-                jsonlite::fromJSON("./rkiData/geojson.json",simplifyDataFrame = F)
+                jsonlite::fromJSON("data/rkiData/geojson.json",simplifyDataFrame = F)
                 }) %>%
                 shiny::bindCache(diviData %>% summarise(max(date,na.rm=T)))
     today <- reactive({
@@ -325,38 +324,38 @@ server <- function(input, output, session) {
     mc <- reactive({ missing_county }) %>%
         shiny::bindCache(diviData %>% summarise(max(date,na.rm=T)))
     
-    if(file.info("divi.feather")$mtime>divi.mtime) {
+    if(file.info("data/divi.feather")$mtime>divi.mtime) {
         print("divi.feather changed on disk, reloading")
-        diviData <- arrow::read_feather("divi.feather")
-        gemeindeNamen <- arrow::read_feather("gemeinden.feather")
-        divi.mtime <- file.info("divi.feather")$mtime
+        diviData <- arrow::read_feather("data/divi.feather")
+        gemeindeNamen <- arrow::read_feather("data/gemeinden.feather")
+        divi.mtime <- file.info("data/divi.feather")$mtime
     }
     
-    if(file.info("diviForecast.feather")$mtime>diviForecast.mtime) {
+    if(file.info("data/diviForecast.feather")$mtime>diviForecast.mtime) {
         print("diviForecast.feather changed on disk, reloading")
-        diviForecast <- arrow::read_feather("diviForecast.feather")
-        diviForecast.mtime <- file.info("diviForecast.feather")$mtime
+        diviForecast <- arrow::read_feather("data/diviForecast.feather")
+        diviForecast.mtime <- file.info("data/diviForecast.feather")$mtime
     }
     
-    if(file.info("diviForecastAccuracy.feather")$mtime>diviForecastAccuracy.mtime) {
+    if(file.info("data/diviForecastAccuracy.feather")$mtime>diviForecastAccuracy.mtime) {
         print("diviForecastAccuracy.feather changed on disk, reloading")
-        diviForecastAccuracy <- arrow::read_feather("diviForecastAccuracy.feather")
-        diviForecastAccuracy.mtime <- file.info("diviForecastAccuracy.feather")$mtime
+        diviForecastAccuracy <- arrow::read_feather("data/diviForecastAccuracy.feather")
+        diviForecastAccuracy.mtime <- file.info("data/diviForecastAccuracy.feather")$mtime
     }
     
-    if(file.info("rkiData/rki.feather")$mtime>rki.mtime) {
+    if(file.info("data/rki.feather")$mtime>rki.mtime) {
         print("rki.feather changed on disk, reloading")
-        rkiData <- arrow::read_feather("rkiData/rki.feather")
-        rki.mtime <- file.info("rkiData/rki.feather")$mtime
+        rkiData <- arrow::read_feather("data/rki.feather")
+        rki.mtime <- file.info("data/rki.feather")$mtime
     }
     
-    if(file.info("rkiData/rkiHistory.feather")$mtime>rkiHistory.mtime) {
+    if(file.info("data/rkiHistory.feather")$mtime>rkiHistory.mtime) {
         print("rkiHistory.feather changed on disk, reloading")
-        rkiHistory <- arrow::read_feather("rkiData/rkiHistory.feather")
-        rkiHistory.mtime <- file.info("rkiData/rkiHistory.feather")$mtime
+        rkiHistory <- arrow::read_feather("data/rkiHistory.feather")
+        rkiHistory.mtime <- file.info("data/rkiHistory.feather")$mtime
     }
 
-    if(checkFileCache("json_data/hospitals.json")) {
+    if(checkFileCache("data/json_data/hospitals.json")) {
         hospitals <- loadHospitalData()
     }
     

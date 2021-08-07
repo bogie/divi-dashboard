@@ -1,5 +1,5 @@
 tryCatch({
-    success <- download.file("https://www.arcgis.com/sharing/rest/content/items/f10774f1c63e40168479a1feb6c7ca74/data","rkiData/RKI_COVID19.csv")
+    success <- download.file("https://www.arcgis.com/sharing/rest/content/items/f10774f1c63e40168479a1feb6c7ca74/data","data/rkiData/RKI_COVID19.csv")
     },
     warning = function(war) {
         print(paste("Downloading file yielded warning: ",war))
@@ -7,7 +7,7 @@ tryCatch({
     error = function(err) {
         print(paste("Downloading file yielded err: ", err))
         Sys.sleep(60)
-        success <- download.file("https://www.arcgis.com/sharing/rest/content/items/f10774f1c63e40168479a1feb6c7ca74/data","rkiData/RKI_COVID19.csv")
+        success <- download.file("https://www.arcgis.com/sharing/rest/content/items/f10774f1c63e40168479a1feb6c7ca74/data","data/rkiData/RKI_COVID19.csv")
     },
     finally = function(f) {
         print(paste("Downloading file yielded finally: ", f))
@@ -19,7 +19,7 @@ print(paste("File downloaded finished with code: ", success))
 if(success!=0) {
     print(paste("Download did not succeed, waiting 60 seconds and trying again"))
     Sys.sleep(60)
-    download.file("https://www.arcgis.com/sharing/rest/content/items/f10774f1c63e40168479a1feb6c7ca74/data","rkiData/RKI_COVID19.csv")
+    download.file("https://www.arcgis.com/sharing/rest/content/items/f10774f1c63e40168479a1feb6c7ca74/data","data/rkiData/RKI_COVID19.csv")
 }
 
 suppressPackageStartupMessages(library(lubridate))
@@ -37,11 +37,11 @@ suppressPackageStartupMessages(library(stringr))
 
 ## RKI R values
 url_rkiRvalue <- "https://raw.githubusercontent.com/robert-koch-institut/SARS-CoV-2-Nowcasting_und_-R-Schaetzung/main/Nowcast_R_aktuell.csv"
-download.file(url_rkiRvalue, "rkiData/RKI_R.csv")
+download.file(url_rkiRvalue, "data/rkiData/RKI_R.csv")
 
-rkiR <- vroom::vroom("rkiData/RKI_R.csv", delim=",",
+rkiR <- vroom::vroom("data/rkiData/RKI_R.csv", delim=",",
                      locale = vroom::locale(decimal_mark=","),
-                     col_types = "cnnnnnnnnnnnn")
+                     col_types = "cnnnnnnnnn")
 rkiR$Datum <- ymd(rkiR$Datum)
 rkiR <- rkiR %>% filter(!is.na(Datum))
 colnames(rkiR) <- c("Date",
@@ -53,16 +53,16 @@ colnames(rkiR) <- c("Date",
 ## RKI key data
 
 url_rkiKey <- "https://opendata.arcgis.com/api/v3/datasets/c2f3c3b935a242169c6bec82e1fa573e_0/downloads/data?format=csv&spatialRefId=4326"
-download.file(url_rkiKey, "rkiData/RKI_Key_Data.csv")
+download.file(url_rkiKey, "data/rkiData/RKI_Key_Data.csv")
 
 
-rkiKeyData <- vroom::vroom("rkiData/RKI_Key_Data.csv")
+rkiKeyData <- vroom::vroom("data/rkiData/RKI_Key_Data.csv")
 
 ## RKI History
 url_rkiHistory <- "https://opendata.arcgis.com/api/v3/datasets/6d78eb3b86ad4466a8e264aa2e32a2e4_0/downloads/data?format=csv&spatialRefId=4326"
-download.file(url_rkiHistory, "rkiData/RKI_History.csv")
+download.file(url_rkiHistory, "data/rkiData/RKI_History.csv")
 
-rkiHistory <- vroom::vroom("rkiData/RKI_History.csv",delim = ",",col_types = "ccncnnnnn")
+rkiHistory <- vroom::vroom("data/rkiData/RKI_History.csv",delim = ",",col_types = "ccncnnnnn")
 rkiHistory$Datum <- ymd_hms(rkiHistory$Datum)
 rkiHistory$AdmUnitId <- ifelse(str_length(rkiHistory$AdmUnitId)==4,str_c("0",rkiHistory$AdmUnitId),rkiHistory$AdmUnitId)
 rkiHistory <- rkiHistory %>% rename(date=Datum,gemeinde=AdmUnitId)
@@ -71,7 +71,7 @@ rkiHistory <- rkiHistory %>% group_by(gemeinde) %>% arrange(date) %>% ungroup()
 
 ## RKI Data
 #rkiData <- read.csv("rkiData/RKI_COVID19.csv",encoding = "UTF-8",colClasses = "character")
-rkiData <- vroom::vroom("rkiData/RKI_COVID19.csv",col_types = "nnccccnncccnncnnnc")
+rkiData <- vroom::vroom("data/rkiData/RKI_COVID19.csv",col_types = "nnccccnncccnncnnnc")
 
 rkiData$Meldedatum <- ymd_hms(rkiData$Meldedatum)
 rkiData$Datenstand <- dmy_hm(rkiData$Datenstand)
@@ -110,7 +110,7 @@ rkiData <- rkiData %>%
 #         hovermode="x unified")
 
 #saveRDS(rkiData,file="rkiData/rki.rds")
-arrow::write_feather(rkiData,"rkiData/rki.feather")
-arrow::write_feather(rkiHistory, "rkiData/rkiHistory.feather")
-arrow::write_feather(rkiR, "rkiData/rkiR.feather")
-arrow::write_feather(rkiKeyData,"rkiData/rkiKeyData.feather")
+arrow::write_feather(rkiData,"data/rki.feather")
+arrow::write_feather(rkiHistory, "data/rkiHistory.feather")
+arrow::write_feather(rkiR, "data/rkiR.feather")
+arrow::write_feather(rkiKeyData,"data/rkiKeyData.feather")
