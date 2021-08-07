@@ -9,6 +9,7 @@ suppressPackageStartupMessages(library(tidymodels))
 suppressPackageStartupMessages(library(modeltime))
 suppressPackageStartupMessages(library(timetk))
 suppressPackageStartupMessages(library(earth))
+suppressPackageStartupMessages(library(prophet))
 
 getDIVIURLsfromRKIArchive <- function(start=0,end=100) {
     urlSeq <- seq(start,end,by=20)
@@ -118,6 +119,8 @@ createForecastData <- function() {
                 date <= ymd("2020-12-16") ~ 2,
                 date <= ymd("2021-03-04") ~ 3,
                 date <= ymd("2021-04-19") ~ 2,
+                date <= ymd("2021-05-01") ~ 1,
+                date <= ymd("2021-08-07") ~ 0,
                 TRUE ~ 3
             )
         )
@@ -126,7 +129,8 @@ createForecastData <- function() {
 }
 
 createForecasts <- function(df, varname) {
-    splits <- df %>% time_series_split(date_var = date,assess = "4 weeks", cumulative = T)
+    splits <- df %>%
+        time_series_split(date_var = date,assess = "4 weeks", cumulative = T)
     
     # ARIMA
     model_fit_arima_no_boost <- arima_reg() %>%
