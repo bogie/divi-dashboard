@@ -10,6 +10,30 @@ suppressPackageStartupMessages(library(modeltime))
 suppressPackageStartupMessages(library(timetk))
 suppressPackageStartupMessages(library(earth))
 
+getDIVIURLsfromRKIArchive <- function(start=0,end=100) {
+    urlSeq <- seq(start,end,by=20)
+    diviArchive <- "https://edoc.rki.de/handle/176904/7012/recent-submissions?offset="
+    pageUrls <- paste0(diviArchive,urlSeq)
+    csvUrls <- lapply(pageUrls, function(pUrl) {
+        diviPage <- read_html(pUrl)
+        urlList <- html_nodes(diviPage,".ds-artifact-item a")
+        urlList <- lapply(urlList,function(x) { html_attr(x,"href")})
+        urlList <- unlist(urlList, recursive = FALSE,use.names = FALSE)
+        return(urlList)
+    })
+    csvUrls <- unlist(csvUrls,recursive = FALSE,use.names = FALSE)
+    csvUrls <- lapply(csvUrls, function(cUrl) {
+        rkiPage <- read_html(paste0("https://edoc.rki.de/",cUrl))
+        dlUrl <- html_nodes(rkiPage, ".ds-artifact-item a")[1]
+        dlUrl <- html_attr(dlUrl,"href")
+        dlUrl <- paste0("https://edoc.rki.de",dlUrl)
+        return(dlUrl)
+    })
+    csvUrls <- unlist(csvUrls,recursive = F, use.names = F)
+    
+    return(csvUrls)
+}
+
 getDiviDataArchiveUrls <- function(start=0,end=60) {
     urlSeq <- seq(start,end,by=20)
     diviArchive <- "https://www.divi.de/divi-intensivregister-tagesreport-archiv-csv?layout=table&start="
@@ -23,6 +47,20 @@ getDiviDataArchiveUrls <- function(start=0,end=60) {
     })
     csvUrls <- unlist(csvUrls,recursive = FALSE,use.names = FALSE)
     return(paste0("https://www.divi.de",csvUrls))
+}
+
+downloadFromArchive <- function(start=0,end=60) {
+    rkiUrls <- getDIVIURLsfromRKIArchive(start,end)
+    newFiles <- lapply(rkiUrls, function(url){
+        fname <- str_split(url,"/",simplify = T)[8]
+        fname <- str_split(fname,"\\?",simplify = T)[1]
+        fname <- str_remove(fname,"_teilbare_divi_daten")
+        fname <- paste0("./data/rawData/divi-intensivregister-",fname)
+        if(!file.exists(fname) & str_ends(fname,".csv")) {
+            download.file(url,fname)
+            return(fname)
+        }
+    })
 }
 
 downloadDIVIdata <- function(start=0,end=60) {
@@ -205,9 +243,9 @@ diviData <- lapply(fileList, function(file) {
 }) %>% bind_rows(.)
 
 diviData$gemeindeschluessel <- ifelse(
-                                          str_length(diviData$gemeindeschluessel)==4 & !str_starts(diviData$gemeindeschluessel,"0"),
-                                              str_c("0",diviData$gemeindeschluessel),
-                                              diviData$gemeindeschluessel)
+    str_length(diviData$gemeindeschluessel)==4 & !str_starts(diviData$gemeindeschluessel,"0"),
+    str_c("0",diviData$gemeindeschluessel),
+    diviData$gemeindeschluessel)
 diviData$gemeinde <- ifelse(is.na(diviData$gemeindeschluessel),diviData$kreis,diviData$gemeindeschluessel)
 diviData$bundesland <- as.numeric(diviData$bundesland)
 diviData$kreis <- NULL
@@ -234,7 +272,7 @@ diviData <- diviData %>%
         pct_covid = round(faelle_covid_aktuell/betten_belegt*100,1),
         covid_per_100k = round(faelle_covid_aktuell/(pop_all/100000)),
         covid_per_100k_intubated = round(faelle_covid_aktuell_beatmet/(pop_all/100000))
-        )
+    )
 
 rkiHistory <- arrow::read_feather("data/rkiHistory.feather")
 
