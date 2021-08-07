@@ -55,6 +55,7 @@ downloadFromArchive <- function(start=0,end=60) {
         fname <- str_split(url,"/",simplify = T)[8]
         fname <- str_split(fname,"\\?",simplify = T)[1]
         fname <- str_remove(fname,"_teilbare_divi_daten")
+        fname <- str_replace(fname, "_","-")
         fname <- paste0("./data/rawData/divi-intensivregister-",fname)
         if(!file.exists(fname) & str_ends(fname,".csv")) {
             download.file(url,fname)
@@ -96,7 +97,7 @@ if(!file.exists("data/zips.feather")) {
                                     "character","character","numeric","numeric"))
     
     filteredZipcodes <- zips %>% distinct(zipcode,.keep_all = TRUE)
-    arrow::write_feather(filteredZipcodes,"data/zips.feather")
+    arrow::write_feather(filteredZipcodes,"data/zips.feather", compression = "uncompressed")
 }
 
 
@@ -306,8 +307,8 @@ kreise.features <- lapply(kreise.geojson$features, function(feature) {
 kreise.geojson$features <- kreise.features
 jsonlite::write_json(kreise.geojson,path = "data/json_data/divi.geojson")
 
-arrow::write_feather(diviData,"data/divi.feather")
-arrow::write_feather(gemeindeNamen,"data/gemeinden.feather")
-arrow::write_feather(diviForecast,"data/diviForecast.feather")
-arrow::write_feather(accuracyTables,"data/diviForecastAccuracy.feather")
+arrow::write_feather(diviData,"data/divi.feather", compression = "uncompressed")
+arrow::write_feather(gemeindeNamen,"data/gemeinden.feather", compression = "uncompressed")
+arrow::write_feather(diviForecast,"data/diviForecast.feather", compression = "uncompressed")
+arrow::write_feather(accuracyTables,"data/diviForecastAccuracy.feather", compression = "uncompressed")
 

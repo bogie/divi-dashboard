@@ -110,7 +110,7 @@ rkiData <- rkiData %>%
 #         hovermode="x unified")
 
 #saveRDS(rkiData,file="rkiData/rki.rds")
-arrow::write_feather(rkiData,"data/rki.feather")
-arrow::write_feather(rkiHistory, "data/rkiHistory.feather")
-arrow::write_feather(rkiR, "data/rkiR.feather")
-arrow::write_feather(rkiKeyData,"data/rkiKeyData.feather")
+arrow::write_feather(rkiData,"data/rki.feather", compression = "uncompressed")
+arrow::write_feather(rkiHistory, "data/rkiHistory.feather", compression = "uncompressed")
+arrow::write_feather(rkiR, "data/rkiR.feather", compression = "uncompressed")
+arrow::write_feather(rkiKeyData,"data/rkiKeyData.feather", compression = "uncompressed")
