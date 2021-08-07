@@ -31,7 +31,7 @@ loadPackages <- function(package = NULL, packageList = NULL, silent = TRUE) {
 
 library(shiny)
 library(plotly)
-library(tidyverse)
+library(dplyr)
 library(lubridate)
 library(rvest)
 library(stringr)
