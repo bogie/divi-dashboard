@@ -849,6 +849,15 @@ server <- function(input, output, session) {
                     hovermode="x unified",
                     margin=list(l=40,r=40,t=0,b=0)
                     )
+            
+            df2 <- rkiHistory %>% filter(BundeslandId==0) %>%
+                arrange(date)
+            p <- p %>%
+                add_trace(data=df2,
+                          x=~date,y=~AnzFallErkrankung,
+                          name="Neue Fälle(RKI)",
+                          type="bar",
+                          marker=list(color=toRGB("grey",alpha=0.6)))
             incProgress(2/n, detail = "DIVI: rendering plot")
             p
         })
