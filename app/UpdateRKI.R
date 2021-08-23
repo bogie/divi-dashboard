@@ -28,6 +28,8 @@ suppressPackageStartupMessages(library(arrow))
 suppressPackageStartupMessages(library(vroom))
 suppressPackageStartupMessages(library(RPostgreSQL))
 suppressPackageStartupMessages(library(stringr))
+suppressPackageStartupMessages(library(RcppRoll))
+suppressPackageStartupMessages(library(openxlsx))
 
 # 
 # drv <- dbDriver("PostgreSQL")
@@ -68,6 +70,27 @@ rkiHistory$AdmUnitId <- ifelse(str_length(rkiHistory$AdmUnitId)==4,str_c("0",rki
 rkiHistory <- rkiHistory %>% rename(date=Datum,gemeinde=AdmUnitId)
 
 rkiHistory <- rkiHistory %>% group_by(gemeinde) %>% arrange(date) %>% ungroup()
+
+rkiHistory <- rkiHistory %>% ungroup() %>%
+    group_by(gemeinde) %>%
+    arrange(gemeinde,date) %>%
+    mutate(Fall7d=roll_sum(AnzFallErkrankung,n = 7,align="right",fill=NA)) %>%
+    ungroup()
+
+kreise <- read.xlsx("04-kreise.xlsx",sheet = 2, startRow = 6)
+colnames(kreise) <- c("key","type","name","NUTS3","area","pop_all","pop_male","pop_female","pop_per_km2")
+kreise <- kreise %>% filter(!is.na(name) & !is.na(key))
+
+kreise <- kreise %>% summarise_at(c(5:9),sum) %>%
+    mutate(key=0,type="Land",name="Deutschland",NUTS3="DE") %>%
+    relocate(key,type,name,NUTS3,pop_all,pop_male,pop_female,pop_per_km2) %>%
+    rbind(.,kreise)
+
+rkiHistory <- rkiHistory %>%
+    left_join(kreise,by=c("gemeinde"="key"))
+
+rkiHistory <- rkiHistory %>%
+    mutate(Incidence_7d_per_100k = Fall7d/(pop_all/100000))
 
 ## RKI Data
 #rkiData <- read.csv("rkiData/RKI_COVID19.csv",encoding = "UTF-8",colClasses = "character")

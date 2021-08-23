@@ -29,7 +29,7 @@ RUN apt-get update && apt-get install -y \
 RUN R -e "install.packages(c('shiny', 'rmarkdown','rstan'), repos='https://cloud.r-project.org/')"
 
 # install dependencies of the dividashboard app
-RUN R -e "install.packages(c('prophet','tidyverse','plotly','lubridate','rvest','stringr','openxlsx','shinythemes','jsonlite','forecast','tidymodels','modeltime','timetk','earth','rjson','promises','future','cachem','arrow','RPostgreSQL','vroom'))"
+RUN R -e "install.packages(c('RcppRoll','prophet','tidyverse','plotly','lubridate','rvest','stringr','openxlsx','shinythemes','jsonlite','forecast','tidymodels','modeltime','timetk','earth','rjson','promises','future','cachem','arrow','RPostgreSQL','vroom'))"
 
 # copy the app to the image
 RUN mkdir /root/diviDashboard

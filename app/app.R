@@ -47,6 +47,7 @@ library(rjson)
 library(promises)
 library(future)
 library(cachem)
+library(rvest)
 
 plan(multisession)
 
@@ -126,6 +127,15 @@ getReportingSections <- function(hospital) {
     
     json <- jsonlite::fromJSON(fname)
     json %>% dplyr::select(bezeichnung)
+}
+
+getHospitalContact <- function(ikNumber) {
+    url <- str_c("https://www.deutsches-krankenhaus-verzeichnis.de/app/suche/ergebnis?search%5BwhereRange%5D=25&search%5BwhatSearchString%5D=",ikNumber,"#dkv_modal_hospital_1")
+    pUrl <- read_html(url)
+    url_elements <- html_elements(pUrl,"a")
+    urls <- lapply(url_elements,function(e){html_attr(e,"href")}) %>% unlist()
+    tel <- urls[str_starts(urls,"tel:")==TRUE & !is.na(urls)] %>% str_split(.,":") %>% unlist() %>% .[2]
+    return(tel)
 }
 
 #filteredZipcodes <- readRDS("zips.rds")
@@ -716,9 +726,9 @@ server <- function(input, output, session) {
                           line=list(color=toRGB("black"))) %>%
                 add_trace(x=~Refdatum,
                           y=~cumDeaths,
-                          hovertemplate = paste0('Datum: %{x}','<br>Fälle: %{y}'),
-                          name="Tote",
-                          yaxis="y",
+                          hovertemplate = paste0('Datum: %{x}','<br>Verstorbene: %{y}'),
+                          name="Verstorbene",
+                          yaxis="y3",
                           line=list(color=toRGB("red"))) %>%
                 add_trace(x=~date,
                           y=~AnzFallErkrankung,
@@ -730,23 +740,35 @@ server <- function(input, output, session) {
                           data=df2
                           ) %>%
                 add_trace(x=~date,
+                          y=~Incidence_7d_per_100k,
+                          hovertemplate = paste0('Datum: %{x}','<br>Inzidenz: %{y}'),
+                          name="Inzidenz(7 Tage)",
+                          yaxis="y2",
+                          line=list(color=toRGB("blue")),
+                          data=df2
+                          ) %>%
+                add_trace(x=~date,
                           y=~faelle_covid_aktuell,
                           data=filter(diviData,gemeinde==gemeinde()),
                           name="COVID Patienten\n(auf Intensivstation)",
-                          hovertemplate = paste0('Datum: %{x}','<br>Fälle: %{y}'),
+                          hovertemplate = paste0('Datum: %{x}','<br>Patienten: %{y}'),
                           line=list(color=toRGB("darkgreen")),
                           yaxis="y2") %>%
                 add_trace(x=~date,
                           y=~faelle_covid_aktuell_beatmet,
                           data=filter(diviData,gemeinde==gemeinde()),
                           name="COVID Patienten\n(beatmet auf Intensiv)",
-                          hovertemplate = paste0('Datum: %{x}','<br>Fälle: %{y}'),
+                          hovertemplate = paste0('Datum: %{x}','<br>Patienten: %{y}'),
                           line=list(color=toRGB("orange")),
                           yaxis="y2") %>%
                 plotly::layout(
-                    xaxis=list(title="Datum"),
+                    xaxis=list(title="",domain=c(0,0.95)),
                     yaxis=list(title="Fallzahl",side="left"),
-                    yaxis2=list(title="Tote",overlaying="y",side="right"),
+                    yaxis2=list(title="Fälle",overlaying="y",side="right",
+                                showline=F,
+                                position=0.95),
+                    yaxis3=list(title="Verstorbene",overlaying="y",side="right",
+                                showline=F,position=1,showgrid=F),
                     margin=list(l=40,r=40,t=0,b=0),
                     hovermode="x unified",
                     legend = list(orientation = 'h'))
