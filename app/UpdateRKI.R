@@ -30,6 +30,7 @@ suppressPackageStartupMessages(library(RPostgreSQL))
 suppressPackageStartupMessages(library(stringr))
 suppressPackageStartupMessages(library(RcppRoll))
 suppressPackageStartupMessages(library(openxlsx))
+suppressPackageStartupMessages(library(jsonlite))
 
 # 
 # drv <- dbDriver("PostgreSQL")
@@ -54,18 +55,37 @@ colnames(rkiR) <- c("Date",
 
 ## RKI key data
 
-url_rkiKey <- "https://opendata.arcgis.com/api/v3/datasets/c2f3c3b935a242169c6bec82e1fa573e_0/downloads/data?format=csv&spatialRefId=4326"
-download.file(url_rkiKey, "data/rkiData/RKI_Key_Data.csv")
-
-
-rkiKeyData <- vroom::vroom("data/rkiData/RKI_Key_Data.csv")
+# url_rkiKey <- "https://opendata.arcgis.com/api/v3/datasets/c2f3c3b935a242169c6bec82e1fa573e_0/downloads/data?format=csv&spatialRefId=4326"
+# download.file(url_rkiKey, "data/rkiData/RKI_Key_Data.csv")
+# 
+# 
+# rkiKeyData <- vroom::vroom("data/rkiData/RKI_Key_Data.csv")
 
 ## RKI History
-url_rkiHistory <- "https://opendata.arcgis.com/api/v3/datasets/6d78eb3b86ad4466a8e264aa2e32a2e4_0/downloads/data?format=csv&spatialRefId=4326"
-download.file(url_rkiHistory, "data/rkiData/RKI_History.csv")
+# url_rkiHistory <- "https://opendata.arcgis.com/api/v3/datasets/6d78eb3b86ad4466a8e264aa2e32a2e4_0/downloads/data?format=csv&spatialRefId=4326"
+# download.file(url_rkiHistory, "data/rkiData/RKI_History.csv")
+rkiHistory.count <- jsonlite::read_json("https://services7.arcgis.com/mOBPykOjAyBO2ZKk/arcgis/rest/services/rki_history_hubv/FeatureServer/0/query?where=1%3D1&objectIds=&time=&resultType=standard&outFields=*&returnIdsOnly=false&returnUniqueIdsOnly=false&returnCountOnly=true&returnDistinctValues=false&cacheHint=false&orderByFields=&groupByFieldsForStatistics=&outStatistics=&having=&resultOffset=&resultRecordCount=&sqlFormat=none&f=pjson&token=",simplifyVector = T)
 
-rkiHistory <- vroom::vroom("data/rkiData/RKI_History.csv",delim = ",",col_types = "ccncnnnnn")
-rkiHistory$Datum <- ymd_hms(rkiHistory$Datum)
+rki.seq <- seq(0,rkiHistory.count$count,by=32000)
+
+sapply(rki.seq, function(offset) {
+    fname <- paste0("data/rkiData/RKI_History_",offset,".json")
+    download.file(paste0("https://services7.arcgis.com/mOBPykOjAyBO2ZKk/arcgis/rest/services/rki_history_hubv/FeatureServer/0/query?where=1%3D1&objectIds=&time=&resultType=standard&outFields=*&returnIdsOnly=false&returnUniqueIdsOnly=false&returnCountOnly=false&returnDistinctValues=false&cacheHint=false&orderByFields=&groupByFieldsForStatistics=&outStatistics=&having=&resultOffset=",offset,"&resultRecordCount=32000&sqlFormat=none&f=pjson&token="),fname)
+})
+
+history.files <- paste0("data/rkiData/RKI_History_",rki.seq,".json")
+
+rkiHistory.jsonList <- lapply(history.files, function(file) {
+    js <- read_json(file,simplifyVector = T)
+    return(js$features$attributes)
+})
+
+
+rkiHistory <- rkiHistory.jsonList %>% bind_rows()
+rkiHistory <- rkiHistory %>% mutate(Datum = as.POSIXct(Datum/1000,origin="1970-01-01")) %>%
+    mutate(Datum = as.Date(Datum))
+#rkiHistory <- vroom::vroom("data/rkiData/RKI_History.csv",delim = ",",col_types = "ccncnnnnn")
+#rkiHistory$Datum <- ymd_hms(rkiHistory$Datum)
 rkiHistory$AdmUnitId <- ifelse(str_length(rkiHistory$AdmUnitId)==4,str_c("0",rkiHistory$AdmUnitId),rkiHistory$AdmUnitId)
 rkiHistory <- rkiHistory %>% rename(date=Datum,gemeinde=AdmUnitId)
 
@@ -136,4 +156,4 @@ rkiData <- rkiData %>%
 arrow::write_feather(rkiData,"data/rki.feather", compression = "uncompressed")
 arrow::write_feather(rkiHistory, "data/rkiHistory.feather", compression = "uncompressed")
 arrow::write_feather(rkiR, "data/rkiR.feather", compression = "uncompressed")
-arrow::write_feather(rkiKeyData,"data/rkiKeyData.feather", compression = "uncompressed")
+#arrow::write_feather(rkiKeyData,"data/rkiKeyData.feather", compression = "uncompressed")
