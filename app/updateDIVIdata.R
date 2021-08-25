@@ -209,16 +209,15 @@ createForecasts <- function(df, varname) {
         filter(date==max(date))
     
     future_tbl <- df %>% future_frame(.length_out="2 weeks") %>%
-        mutate(lockdown_level = last_day$lockdown_level,
-               sum_newCases = last_day$sum_newCases)
-        
-        # left_join(
-        #     select(
-        #         mutate(df,date=date+days(14)),
-        #         date,
-        #         sum_newCases,
-        #         lockdown_level),
-        #     by="date")
+        # mutate(lockdown_level = last_day$lockdown_level,
+        #        sum_newCases = last_day$sum_newCases)
+        left_join(
+            select(
+                mutate(df,date=date+days(14)),
+                date,
+                sum_newCases,
+                lockdown_level),
+            by="date")
     
     forecast_tbl <- refit_tbl %>% modeltime_forecast(actual_data=df,new_data = future_tbl)
     forecast_tbl <- forecast_tbl %>%
