@@ -121,7 +121,7 @@ createForecastData <- function() {
                 date <= ymd("2021-04-19") ~ 2,
                 date <= ymd("2021-05-01") ~ 1,
                 date <= ymd("2021-08-07") ~ 0,
-                TRUE ~ 3
+                TRUE ~ 1
             )
         )
         )
@@ -205,14 +205,20 @@ createForecasts <- function(df, varname) {
     refit_tbl <- calibration_tbl %>%
         modeltime_refit(df)
     
+    last_day <- df %>%
+        filter(date==max(date))
+    
     future_tbl <- df %>% future_frame(.length_out="2 weeks") %>%
-        left_join(
-            select(
-                mutate(df,date=date+days(14)),
-                date,
-                sum_newCases,
-                lockdown_level),
-            by="date")
+        mutate(lockdown_level = last_day$lockdown_level,
+               sum_newCases = last_day$sum_newCases)
+        
+        # left_join(
+        #     select(
+        #         mutate(df,date=date+days(14)),
+        #         date,
+        #         sum_newCases,
+        #         lockdown_level),
+        #     by="date")
     
     forecast_tbl <- refit_tbl %>% modeltime_forecast(actual_data=df,new_data = future_tbl)
     forecast_tbl <- forecast_tbl %>%
@@ -282,7 +288,7 @@ diviData <- diviData %>%
 rkiHistory <- arrow::read_feather("data/rkiHistory.feather")
 
 diviData <- diviData %>%
-    left_join(rkiHistory,by=c("date","gemeinde"))
+    left_join(select(rkiHistory,gemeinde,BundeslandId,date,AnzFallNeu,AnzFallVortag,AnzFallErkrankung,AnzFallMeldung,KumFall,Fall7d,Incidence_7d_per_100k),by=c("date","gemeinde"))
 
 gemeindeNamen <- diviData %>% dplyr::select(gemeinde, name) %>% distinct(gemeinde,.keep_all = TRUE)
 
