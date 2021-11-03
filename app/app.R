@@ -115,6 +115,7 @@ loadHospitalData <- function() {
 }
 
 getReportingSections <- function(hospital) {
+    hospital <- str_replace_all(hospital,"[^0-9]","")
     url <- str_c("https://www.intensivregister.de/api/public/stammdaten/krankenhausstandort/",
                  hospital,
                  "/meldebereiche")
