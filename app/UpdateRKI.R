@@ -28,7 +28,7 @@ suppressPackageStartupMessages(library(arrow))
 suppressPackageStartupMessages(library(vroom))
 suppressPackageStartupMessages(library(RPostgreSQL))
 suppressPackageStartupMessages(library(stringr))
-suppressPackageStartupMessages(library(RcppRoll))
+suppressPackageStartupMessages(library(zoo))
 suppressPackageStartupMessages(library(openxlsx))
 suppressPackageStartupMessages(library(jsonlite))
 
@@ -90,11 +90,18 @@ rkiHistory$AdmUnitId <- ifelse(str_length(rkiHistory$AdmUnitId)==4,str_c("0",rki
 rkiHistory <- rkiHistory %>% rename(date=Datum,gemeinde=AdmUnitId)
 
 rkiHistory <- rkiHistory %>% group_by(gemeinde) %>% arrange(date) %>% ungroup()
+rkiHistory <- rkiHistory %>% group_by(gemeinde) %>% mutate(FallNeu=KumFall-lag(KumFall,default=0)) %>% ungroup()
+
+# rkiHistory <- rkiHistory %>% ungroup() %>%
+#     group_by(gemeinde) %>%
+#     arrange(gemeinde,date) %>%
+#     mutate(Fall7d=roll_sum(FallNeu,n = 7,align="right",fill=NA)) %>%
+#     ungroup()
 
 rkiHistory <- rkiHistory %>% ungroup() %>%
     group_by(gemeinde) %>%
     arrange(gemeinde,date) %>%
-    mutate(Fall7d=roll_sum(AnzFallErkrankung,n = 7,align="right",fill=NA)) %>%
+    mutate(Fall7d=rollapplyr(FallNeu,7,sum,partial=T)) %>%
     ungroup()
 
 kreise <- read.xlsx("04-kreise.xlsx",sheet = 2, startRow = 6)
@@ -121,14 +128,28 @@ rkiData$Datenstand <- dmy_hm(rkiData$Datenstand)
 rkiData$Refdatum <- ymd_hms(rkiData$Refdatum)
 
 rkiData[rkiData$IdLandkreis %in% c(11001:11012),]$IdLandkreis <- "11000"
-rkiData[rkiData$IdLandkreis == "09473",]$IdLandkreis <- "9463"
-rkiData[rkiData$IdLandkreis == "09573",]$IdLandkreis <- "9563"
+rkiData[rkiData$IdLandkreis == "09473",]$IdLandkreis <- "09463"
+rkiData[rkiData$IdLandkreis == "09573",]$IdLandkreis <- "09563"
 
 rkiData <- rkiData %>%
     group_by(IdBundesland,IdLandkreis,Refdatum, Altersgruppe) %>%
     summarise(cases=sum(AnzahlFall), deaths=sum(AnzahlTodesfall)) %>%
     group_by(IdBundesland,IdLandkreis, Altersgruppe) %>%
     mutate(cumCases=cumsum(cases),cumDeaths=cumsum(deaths)) %>% ungroup()
+
+
+## RKI Vaccination data
+
+url_vaccination <- "https://github.com/robert-koch-institut/COVID-19-Impfungen_in_Deutschland/raw/master/Aktuell_Deutschland_Landkreise_COVID-19-Impfungen.csv"
+download.file(url_vaccination,"data/rkiData/Aktuell_Deutschland_Landkreise_COVID-19-Impfungen.csv")
+
+rkiVac <- vroom::vroom("data/rkiData/Aktuell_Deutschland_Landkreise_COVID-19-Impfungen.csv", col_types = "cccnn") %>%
+    rename(date=Impfdatum,IdLandkreis = LandkreisId_Impfort, vcCount = Impfschutz, count = Anzahl) %>%
+    mutate(date = ymd(date)) %>%
+    group_by(IdLandkreis,Altersgruppe,vcCount) %>%
+    mutate(cum_count=cumsum(count)) %>%
+    filter(IdLandkreis=="05334") %>%
+    ungroup()
 
 # test %>%
 #     filter(IdLandkreis==5334) %>% group_by(Refdatum) %>% summarise(cases=sum(cases),deaths=sum(deaths)) %>% ungroup() %>% arrange(Refdatum) %>%
@@ -156,4 +177,5 @@ rkiData <- rkiData %>%
 arrow::write_feather(rkiData,"data/rki.feather", compression = "uncompressed")
 arrow::write_feather(rkiHistory, "data/rkiHistory.feather", compression = "uncompressed")
 arrow::write_feather(rkiR, "data/rkiR.feather", compression = "uncompressed")
+arrow::write_feather(rkiVac, "data/rkiVac.feather", compression = "uncompressed")
 #arrow::write_feather(rkiKeyData,"data/rkiKeyData.feather", compression = "uncompressed")

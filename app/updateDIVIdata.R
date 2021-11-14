@@ -108,7 +108,8 @@ createForecastData <- function() {
         summarise(sum_intub = sum(faelle_covid_aktuell_beatmet),
                   sum_covid = sum(faelle_covid_aktuell),
                   sum_newCases = sum(AnzFallErkrankung,na.rm = T),
-                  sum_cumCases = sum(KumFall,na.rm=T)) %>%
+                  sum_cumCases = sum(KumFall,na.rm=T),
+                  mean_7dIncidence = mean(Incidence_7d_per_100k,na.rm=T)) %>%
         ungroup() %>%
         filter(!is.na(sum_intub) & !is.na(sum_covid)) %>%
         mutate(lockdown_level = factor(
@@ -123,19 +124,20 @@ createForecastData <- function() {
                 date <= ymd("2021-08-07") ~ 0,
                 TRUE ~ 1
             )
-        )
+        ),
+        mean_7dIncidence = ifelse(is.na(mean_7dIncidence),lag(mean_7dIncidence),mean_7dIncidence)
         )
     return(diviSummed)
 }
 
 createForecasts <- function(df, varname) {
-    splits <- df %>%
+    splits <- df %>% select(date, varname, lockdown_level, mean_7dIncidence) %>%
         time_series_split(date_var = date,assess = "4 weeks", cumulative = T)
     
     # ARIMA
     model_fit_arima_no_boost <- arima_reg() %>%
         set_engine(engine="auto_arima") %>%
-        fit(as.formula(paste0(varname, "~ date + lockdown_level")), data= training(splits))
+        fit(as.formula(paste0(varname, "~ date + lockdown_level")), data = training(splits))
     
     model_fit_arima_boosted <- arima_boost(
         min_n = 2,
@@ -169,16 +171,23 @@ createForecasts <- function(df, varname) {
     model_spec_mars <- mars(mode = "regression") %>%
         set_engine("earth")
     
+    # recipe_spec <- recipe(as.formula(paste0(varname, "~ date + lockdown_level + mean_7dIncidence")),
+    #                       data = training(splits)) %>%
+    #     step_date(date, features = "month", ordinal = FALSE) %>%
+    #     step_mutate(date_num = as.numeric(date)) %>%
+    #     step_normalize(date_num) %>%
+    #     step_rm(date) %>%
+    #     step_lag(mean_7dIncidence,lag=14) %>%
+    #     step_impute_knn(lag_14_mean_7dIncidence,neighbors = 3) %>%
+    #     #step_naomit(lag_14_mean_7dIncidence) %>%
+    #     step_rm(mean_7dIncidence)
     recipe_spec <- recipe(as.formula(paste0(varname, "~ date + lockdown_level")),
                           data = training(splits)) %>%
         step_date(date, features = "month", ordinal = FALSE) %>%
         step_mutate(date_num = as.numeric(date)) %>%
         step_normalize(date_num) %>%
         step_rm(date)
-    # %>%
-    #     step_lag(sum_newCases,lag=14) %>%
-    #     step_naomit(lag_14_sum_newCases) %>%
-    #     step_rm(sum_newCases)
+    
     
     wflw_fit_mars <- workflow() %>%
         add_recipe(recipe_spec) %>%
@@ -216,12 +225,13 @@ createForecasts <- function(df, varname) {
                 mutate(df,date=date+days(14)),
                 date,
                 sum_newCases,
-                lockdown_level),
+                lockdown_level,
+                mean_7dIncidence),
             by="date")
     
     forecast_tbl <- refit_tbl %>% modeltime_forecast(actual_data=df,new_data = future_tbl)
     forecast_tbl <- forecast_tbl %>%
-        left_join(df %>% select(date,sum_newCases,lockdown_level) %>%
+        left_join(df %>% select(date,sum_newCases,lockdown_level,mean_7dIncidence) %>%
                       rbind(future_tbl),by=c(".index"="date"))
     
     model_id_best <- accuracy_tbl %>% filter(.model_id != 4) %>%

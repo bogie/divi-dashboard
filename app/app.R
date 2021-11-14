@@ -24,30 +24,29 @@ loadPackages <- function(package = NULL, packageList = NULL, silent = TRUE) {
     }
 }
 
-# loadPackages(packageList = c("shiny","plotly","tidyverse","lubridate","rvest",
-#                              "stringr","openxlsx","shinythemes","jsonlite",
-#                              "forecast","tidymodels","modeltime","timetk","earth",
-#                              "rjson","promises","future","cachem"))
+loadPackages(packageList = c("shiny","plotly","dplyr","lubridate","rvest",
+                             "stringr","openxlsx","shinythemes","jsonlite",
+                             "forecast","tidymodels","modeltime","timetk","earth",
+                             "rjson","promises","future","cachem"))
 
-library(shiny)
-library(plotly)
-library(dplyr)
-library(lubridate)
-library(rvest)
-library(stringr)
-library(openxlsx)
-library(shinythemes)
-library(jsonlite)
-library(forecast)
-library(tidymodels)
-library(modeltime)
-library(timetk)
-library(earth)
-library(rjson)
-library(promises)
-library(future)
-library(cachem)
-library(rvest)
+# library(shiny)
+# library(plotly)
+# library(dplyr)
+# library(lubridate)
+# library(rvest)
+# library(stringr)
+# library(openxlsx)
+# library(shinythemes)
+# library(jsonlite)
+# library(forecast)
+# library(tidymodels)
+# library(modeltime)
+# library(timetk)
+# library(earth)
+# library(rjson)
+# library(promises)
+# library(future)
+# library(cachem)
 
 plan(multisession)
 
@@ -63,7 +62,8 @@ if(!file.exists("data/divi.feather") || !file.exists("data/gemeinden.feather") |
 if(!file.exists("data/rki.feather") ||
    !file.exists("data/rkiHistory.feather") ||
    !file.exists("data/rkiR.feather") ||
-   !file.exists("data/rkiKeyData.feather")) {
+   !file.exists("data/rkiKeyData.feather") ||
+   !file.exists("data/rkiVac.feather")) {
     source("./UpdateRKI.R", encoding = "UTF-8")
 }
 
@@ -94,9 +94,7 @@ checkFileCache <- function(fname, cacheTime = hours(1)) {
 }
 
 loadHospitalData <- function() {
-    if(checkFileCache("data/json_data/hospitals.json",hours(2))) {
-        download.file("https://www.intensivregister.de/api/public/intensivregister","data/json_data/hospitals.json")
-    }
+    download.file("https://www.intensivregister.de/api/public/intensivregister","data/json_data/hospitals.json")
     hospitals <- jsonlite::fromJSON("data/json_data/hospitals.json",flatten = TRUE)$data
     hospitals <- hospitals %>%
         left_join(dplyr::select(filteredZipcodes,zipcode,community_code),by=c("krankenhausStandort.plz"="zipcode"))
@@ -139,7 +137,6 @@ getHospitalContact <- function(ikNumber) {
     return(tel)
 }
 
-#filteredZipcodes <- readRDS("zips.rds")
 filteredZipcodes <- arrow::read_feather("data/zips.feather")
 blNames <- c("Schleswig-Holstein",
              "Hamburg",
@@ -158,25 +155,26 @@ blNames <- c("Schleswig-Holstein",
              "Sachsen-Anhalt",
              "Thüringen")
 
+# Load data
 hospitals <- loadHospitalData()
-
-# diviData <- readRDS("divi.rds")
-# rkiData <- readRDS("rkiData/rki.rds")
-# gemeindeNamen <- readRDS("gemeinden.rds")
-# diviData <- fix.encoding(diviData)
-# gemeindeNamen <- fix.encoding(gemeindeNamen)
-
-diviData <- arrow::read_feather("data/divi.feather")
-diviForecast <- arrow::read_feather("data/diviForecast.feather")
-diviForecastAccuracy <- arrow::read_feather("data/diviForecastAccuracy.feather")
 gemeindeNamen <- arrow::read_feather("data/gemeinden.feather")
+
+## Divi data
+diviData <- arrow::read_feather("data/divi.feather")
+diviData.mtime <- file.info("data/divi.feather")$mtime
+diviForecast <- arrow::read_feather("data/diviForecast.feather")
+diviForecast.mtime <- file.info("data/diviForecast.feather")$mtime
+diviForecastAccuracy <- arrow::read_feather("data/diviForecastAccuracy.feather")
+diviForecastAccuracy.mtime <- file.info("data/diviForecastAccuracy.feather")$mtime
+
+## RKI data
 rkiData <- arrow::read_feather("data/rki.feather")
+rkiData.mtime <- file.info("data/rki.feather")$mtime
 rkiHistory <- arrow::read_feather("data/rkiHistory.feather")
 rkiHistory.mtime <- file.info("data/rkiHistory.feather")$mtime
-rki.mtime <- file.info("data/rki.feather")$mtime
-divi.mtime <- file.info("data/divi.feather")$mtime
-diviForecast.mtime <- file.info("data/diviForecast.feather")$mtime
-diviForecastAccuracy.mtime <- file.info("data/diviForecastAccuracy.feather")$mtime
+rkiVac <- arrow::read_feather("data/rkiVac.feather")
+rkiVac.mtime <- file.info("data/rkiVac.feather")$mtime
+
 choices <- setNames(gemeindeNamen$gemeinde,gemeindeNamen$name)
 
 missing_county <- tibble(bundesland=c(7,9,9,9),
@@ -270,9 +268,13 @@ ui <- navbarPage(id = "page", theme=shinytheme("darkly"),
             column(width = 4, uiOutput("info"))
         ),
         fluidRow(
+            column(width=12, h1("COVID-19 Fälle und Impfungen")),
+            column(width=6, plotlyOutput("rkiVacPlot")),
+            column(width=6,plotlyOutput("rkiAgePlot")),
             column(width=12,
-                   plotlyOutput("rkiAgePlot"),
+                   h1("COVID-19 Fälle/Tote und 7 Tage Inzidenz"),
                    plotlyOutput("rkiPlot"),
+                   h1("Lage auf den Intensivstationen"),
                    plotlyOutput("diviAuslastung"),
                    #plotlyOutput("diviBetten"),
                    #plotlyOutput("diviPop")
@@ -335,11 +337,11 @@ server <- function(input, output, session) {
     mc <- reactive({ missing_county }) %>%
         shiny::bindCache(diviData %>% summarise(max(date,na.rm=T)))
     
-    if(file.info("data/divi.feather")$mtime>divi.mtime) {
+    if(file.info("data/divi.feather")$mtime>diviData.mtime) {
         print("divi.feather changed on disk, reloading")
         diviData <- arrow::read_feather("data/divi.feather")
         gemeindeNamen <- arrow::read_feather("data/gemeinden.feather")
-        divi.mtime <- file.info("data/divi.feather")$mtime
+        diviData.mtime <- file.info("data/divi.feather")$mtime
     }
     
     if(file.info("data/diviForecast.feather")$mtime>diviForecast.mtime) {
@@ -354,10 +356,10 @@ server <- function(input, output, session) {
         diviForecastAccuracy.mtime <- file.info("data/diviForecastAccuracy.feather")$mtime
     }
     
-    if(file.info("data/rki.feather")$mtime>rki.mtime) {
+    if(file.info("data/rki.feather")$mtime>rkiData.mtime) {
         print("rki.feather changed on disk, reloading")
         rkiData <- arrow::read_feather("data/rki.feather")
-        rki.mtime <- file.info("data/rki.feather")$mtime
+        rkiData.mtime <- file.info("data/rki.feather")$mtime
     }
     
     if(file.info("data/rkiHistory.feather")$mtime>rkiHistory.mtime) {
@@ -366,7 +368,7 @@ server <- function(input, output, session) {
         rkiHistory.mtime <- file.info("data/rkiHistory.feather")$mtime
     }
 
-    if(checkFileCache("data/json_data/hospitals.json")) {
+    if(checkFileCache("data/json_data/hospitals.json",hours(2))) {
         hospitals <- loadHospitalData()
     }
     
@@ -428,88 +430,8 @@ server <- function(input, output, session) {
                                      choices = choices, selected = isolate(gemeinde()), selectize = TRUE)
     })
     
-    output$choropleth <- renderPlotly({
-        p <- Progress$new()
-        p$set(value = NULL, message = "Loading data...")
-        
-        td <- today()
-        gj <- geojson()
-        mic <- mc()
-        
-        tx <- paste(
-            paste0("<b>",td$name,"</b>"),
-            paste0("Kliniken: ", td$anzahl_standorte),
-            paste0("Betten(frei): ",td$betten_frei),
-            paste0("Betten(belegt): ",td$betten_belegt),
-            paste0("Auslastung(%): ",td$auslastung),
-            paste0("Anteil COVID(%): ",td$pct_covid),
-            sep="<br />")
-        
-        tx2 <- paste(
-            paste0("<b>",mic$name,"</b>"),
-            paste0("Kliniken: ", mic$anzahl_standorte),
-            sep="<br />")
-        
-        p$set(message = "Generating plot...")
-        future_promise({
-            plot_ly(type="choroplethmapbox")
-                }) %...>% add_trace(type="choroplethmapbox",
-                      geojson=gj,
-                      name="Auslastung",
-                      locations = td$gemeinde,
-                      featureidkey = "properties.RS",
-                      z = td$auslastung,
-                      colorscale = "Bluered",
-                      text = tx,
-                      hovertemplate = "%{text}<extra></extra>"
-                      ) %...>%
-                add_trace(type="choroplethmapbox",
-                          geojson=gj,
-                          name="Missing",
-                          locations=mic$gemeinde,
-                          featureidkey = "properties.RS",
-                          color="darkgrey",
-                          z=0,
-                          showscale=F,
-                          text=tx2,
-                          hovertemplate= "%{text}<extra></extra>") %...>%
-                layout(mapbox = list(style="carto-positron",
-                                     zoom=6,
-                                     center = list(lon=10.437657,lat=50.9384167))) %>% finally(~p$close())
-    })
     
-    output$hospitalDetailUI <- renderUI({
-        data <- event_data("plotly_click",source = "diviMap")
-        
-        if(!is.null(data)) {
-            tableOutput("plotlyClick")
-        } else {
-            tags$text("Klicken Sie auf ein Krankenhaus auf der Karte für eine Detailansicht.")
-        }
-    })
-    
-    output$overallHospitalDetailUI <- renderUI({
-        data <- event_data("plotly_click",source = "deutschlandMap")
-        
-        if(!is.null(data)) {
-            tableOutput("overallPlotlyClick")
-        } else {
-            tags$text("Klicken Sie auf ein Krankenhaus auf der Karte für eine Detailansicht.")
-        }
-    })
-
-    output$desc <- renderUI({
-        tagList(
-            tags$text("Quellen: "),
-            tags$br(),
-            tags$a(href="https://www.divi.de/divi-intensivregister-tagesreport-archiv-csv?layout=table","Deutsche Interdisziplinäre Vereinigung für Intensiv- und Notfallmedizin"),
-            tags$br(),
-            tags$a(href="https://www.rki.de/DE/Home/homepage_node.html","Robert Koch-Institut"),
-            tags$br(),
-            tags$a(href="https://www.bkg.bund.de/DE/Home/home.html","Bundesamt für Kartographie und Geodäsie")
-        )
-    })
-    
+    ## Header
     output$info <- renderUI({
         tagList(
             tags$text("Dies ist ein inoffizielles Dashboard das die Daten der DIVI und des RKI kombiniert anzeigt."),
@@ -523,18 +445,14 @@ server <- function(input, output, session) {
         )
     })
     
-    output$impressum <- renderUI({
-        tagList(
-            tags$h1("Impressum"),
-            tags$br(),
-            tags$h2("Inhaltlich verantwortlich"),
-            tags$br(),
-            tags$text("Bojan Hartmann"),
-            tags$br(),
-            tags$a(href="mailto:bogie+dashboard@bawki.de","Mail"),
-            tags$br(),
-            tags$a(href="https://github.com/bogie/divi-dashboard","Source code")
-        )
+    output$hospitalDetailUI <- renderUI({
+        data <- event_data("plotly_click",source = "diviMap")
+        
+        if(!is.null(data)) {
+            tableOutput("plotlyClick")
+        } else {
+            tags$text("Klicken Sie auf ein Krankenhaus auf der Karte für eine Detailansicht.")
+        }
     })
     
     output$hospitals <- renderTable({
@@ -608,46 +526,6 @@ server <- function(input, output, session) {
             fig } %>% finally(~p$close())
     })
     
-    output$deutschlandMap <- renderPlotly({
-        center.lon <- median(hospitals$krankenhausStandort.position.longitude)
-        center.lat <- median(hospitals$krankenhausStandort.position.latitude)
-
-        fig <- hospitals %>%
-            plot_ly(
-                lat = ~krankenhausStandort.position.latitude,
-                lon = ~krankenhausStandort.position.longitude,
-                customdata = ~krankenhausStandort.id,
-                mode = "markers",
-                color = hospitals[,input$overallMapStatus],
-                colors = c("green","orange","red","grey"),
-                type = 'scattermapbox',
-                hoverinfo="text",
-                source = "deutschlandMap",
-                hovertext = ~paste(
-                    paste0("<b>",krankenhausStandort.bezeichnung,"</b>"),
-                    paste0("Address: ",krankenhausStandort.strasse," ",
-                           krankenhausStandort.hausnummer,", ",
-                           krankenhausStandort.plz," ",
-                           krankenhausStandort.ort),
-                    paste("Low Care:",maxBettenStatusEinschaetzungLowCare),
-                    paste("High Care:",maxBettenStatusEinschaetzungHighCare),
-                    paste("ECMO:",maxBettenStatusEinschaetzungEcmo),
-                    sep="<br />")
-            )
-        fig <- fig %>%
-            layout(
-                mapbox = list(
-                    style = 'dark',
-                    zoom = 5,
-                    center = list(lon = center.lon, lat = center.lat)),
-                legend = list(orientation = 'h')
-                ) 
-        fig <- fig %>%
-            config(mapboxAccessToken = mapBoxToken, displayModeBar = FALSE)
-        
-        fig
-    })
-    
     output$plotlyClick <- renderTable({
         data <- event_data("plotly_click",source = "diviMap")
         
@@ -661,47 +539,20 @@ server <- function(input, output, session) {
         }
     })
     
-    output$overallPlotlyClick <- renderTable({
-        data <- event_data("plotly_click",source = "deutschlandMap")
-        
-        if(!is.null(data)) {
-            id <- data$customdata
-            json <- getReportingSections(id) %>%
-                bind_rows() %>%
-                dplyr::select(bezeichnung)
-            rbind(json) %>%
-                rename(Bereich=bezeichnung)
-        }
-    })
-    
     output$stats <- renderUI({
         krStats <- diviData %>% filter(date==max(date) & gemeinde==gemeinde())
+        rkiStats <- rkiHistory %>% filter(date==max(date) & gemeinde==gemeinde())
         strName <- paste("Name:",krStats$name)
         strType <- paste("Bezeichnung:",krStats$type)
         strArea <- paste0("Fläche: ",format(krStats$area,big.mark = ".",decimal.mark = ",",trim=TRUE),"km²")
-        strPop <- paste("Population:",format(krStats$pop_all,big.mark = ".",decimal.mark=",",trim = TRUE))
+        strPop <- paste("Einwohner:",format(krStats$pop_all,big.mark = ".",decimal.mark=",",trim = TRUE))
         strStd <- paste("Standorte:",krStats$anzahl_standorte)
         strBetten <- paste0("Betten(frei/gesamt): ",krStats$betten_frei,"/",krStats$betten_frei+krStats$betten_belegt)
-        strDate <- paste("Aktualisiert:",krStats$daten_stand)
-        HTML(paste(strName,strType,strArea,strPop,strStd,strBetten,strDate,sep="<br />"))
-    })
-    
-    output$overallStats <- renderUI({
-        krStats <- diviData %>% group_by(date) %>% summarise(sum_area = sum(area),
-                                          sum_pop = sum(pop_all),
-                                          sum_standorte = sum(anzahl_standorte),
-                                          sum_free_beds = sum(betten_frei),
-                                          sum_occup_beds = sum(betten_belegt))
-        HTML(
-            with(subset(krStats, date==max(date)),paste(
-                paste0("Deutschland"),
-                paste0("Fläche: ", sum_area,"km²"),
-                paste0("Einwohner: ", sum_pop),
-                paste0("Standorte: ",sum_standorte),
-                paste0("Betten: ",sum_free_beds,"/",sum_free_beds+sum_occup_beds),
-                sep="<br />"
-            ))
-        )
+        strIncidence <- paste0("7-Tage Inzidenz: ",round(rkiStats$Incidence_7d_per_100k,0))
+        strFälle <- paste0("Neue Fälle seit gestern: ",rkiStats$FallNeu)
+        strDate <- paste("Aktualisiert(DIVI):",krStats$daten_stand)
+        strDate2 <- paste("Aktualisiert(RKI):",rkiStats$date)
+        HTML(paste(strName,strType,strArea,strPop,strStd,strBetten,strIncidence,strDate,strDate2,sep="<br />"))
     })
     
     output$rkiPlot <- renderPlotly({
@@ -732,7 +583,7 @@ server <- function(input, output, session) {
                           yaxis="y3",
                           line=list(color=toRGB("red"))) %>%
                 add_trace(x=~date,
-                          y=~AnzFallErkrankung,
+                          y=~FallNeu,
                           hovertemplate = paste0('Datum: %{x}','<br>Neue Fälle: %{y}'),
                           name="Neue Fälle",
                           yaxis="y2",
@@ -786,6 +637,7 @@ server <- function(input, output, session) {
                       color=~Altersgruppe,
                       text=~Altersgruppe,
                       legendgroup="Fälle",
+                      legendgrouptitle=list(text="Fälle"),
                       hovertemplate=paste(
                           'Datum: %{x}',
                           'Fälle: %{y}',
@@ -797,6 +649,7 @@ server <- function(input, output, session) {
                       color=~Altersgruppe,
                       text=~Altersgruppe,
                       legendgroup="Todesfälle",
+                      legendgrouptitle=list(text="Todesfälle"),
                       line=list(dash="dash"),
                       yaxis="y2",
                       hovertemplate=paste('Datum: %{x}',
@@ -814,6 +667,119 @@ server <- function(input, output, session) {
                             margin=list(l=80,r=30,t=30,b=30)
                         )
            )
+    })
+    
+    output$rkiVacPlot <- renderPlotly({
+        rkiVac %>% filter(IdLandkreis == gemeinde()) %>%
+            pivot_wider(names_from="vcCount",
+                        names_prefix="Vac",
+                        values_from = c("count","cum_count")) %>%
+            plot_ly(type="scatter",mode="lines") %>%
+            add_trace(x=~date,
+                      y=~cum_count_Vac1,
+                      color=~Altersgruppe,
+                      legendgroup="first",
+                      line=list(dash="dash"),
+                      legendgrouptitle=list(text="Erste Impfung")) %>%
+            add_trace(x=~date,
+                      y=~cum_count_Vac2,
+                      color=~Altersgruppe,
+                      legendgroup="second",
+                      line=list(dash="dashdot"),
+                      legendgrouptitle=list(text="Zweite Impfung")) %>%
+            add_trace(x=~date,
+                      y=~cum_count_Vac3,
+                      color=~Altersgruppe,
+                      legendgroup="third",
+                      legendgrouptitle=list(text="Dritte Impfung")) %>%
+            plotly::layout(
+                xaxis = list(
+                    title = "Datum"
+                ),
+                yaxis = list(
+                    title = "Geimpte"
+                ),
+                margin=list(l=40,r=40,t=0,b=0),
+                legend=list(x=0,
+                            y=1,
+                            margin=list(l=80,r=30,t=30,b=30)
+                )
+            )
+    })
+    
+    ## Deutschland
+    
+    output$overallStats <- renderUI({
+        krStats <- diviData %>% group_by(date) %>% summarise(sum_area = sum(area),
+                                                             sum_pop = sum(pop_all),
+                                                             sum_standorte = sum(anzahl_standorte),
+                                                             sum_free_beds = sum(betten_frei),
+                                                             sum_occup_beds = sum(betten_belegt))
+        HTML(
+            with(subset(krStats, date==max(date)),paste(
+                paste0("Deutschland"),
+                paste0("Fläche: ", sum_area,"km²"),
+                paste0("Einwohner: ", sum_pop),
+                paste0("Standorte: ",sum_standorte),
+                paste0("Betten: ",sum_free_beds,"/",sum_free_beds+sum_occup_beds),
+                sep="<br />"
+            ))
+        )
+    })
+    
+    
+    
+    output$overallPlotlyClick <- renderTable({
+        data <- event_data("plotly_click",source = "deutschlandMap")
+        
+        if(!is.null(data)) {
+            id <- data$customdata
+            json <- getReportingSections(id) %>%
+                bind_rows() %>%
+                dplyr::select(bezeichnung)
+            rbind(json) %>%
+                rename(Bereich=bezeichnung)
+        }
+    })
+    
+    output$deutschlandMap <- renderPlotly({
+        center.lon <- median(hospitals$krankenhausStandort.position.longitude)
+        center.lat <- median(hospitals$krankenhausStandort.position.latitude)
+        
+        fig <- hospitals %>%
+            plot_ly(
+                lat = ~krankenhausStandort.position.latitude,
+                lon = ~krankenhausStandort.position.longitude,
+                customdata = ~krankenhausStandort.id,
+                mode = "markers",
+                color = hospitals[,input$overallMapStatus],
+                colors = c("green","orange","red","grey"),
+                type = 'scattermapbox',
+                hoverinfo="text",
+                source = "deutschlandMap",
+                hovertext = ~paste(
+                    paste0("<b>",krankenhausStandort.bezeichnung,"</b>"),
+                    paste0("Address: ",krankenhausStandort.strasse," ",
+                           krankenhausStandort.hausnummer,", ",
+                           krankenhausStandort.plz," ",
+                           krankenhausStandort.ort),
+                    paste("Low Care:",maxBettenStatusEinschaetzungLowCare),
+                    paste("High Care:",maxBettenStatusEinschaetzungHighCare),
+                    paste("ECMO:",maxBettenStatusEinschaetzungEcmo),
+                    sep="<br />")
+            )
+        fig <- fig %>%
+            layout(
+                mapbox = list(
+                    style = 'dark',
+                    zoom = 5,
+                    center = list(lon = center.lon, lat = center.lat)),
+                legend = list(orientation = 'h')
+            ) 
+        fig <- fig %>%
+            config(mapboxAccessToken = mapBoxToken, displayModeBar = FALSE)
+        
+        fig
     })
     
     output$overallBetten <- renderPlotly({
@@ -1001,6 +967,87 @@ server <- function(input, output, session) {
                 legend = list(orientation = 'h')
             )
     })
+    
+    ## Map
+    
+    output$choropleth <- renderPlotly({
+        p <- Progress$new()
+        p$set(value = NULL, message = "Loading data...")
+        
+        td <- today()
+        gj <- geojson()
+        mic <- mc()
+        
+        tx <- paste(
+            paste0("<b>",td$name,"</b>"),
+            paste0("Kliniken: ", td$anzahl_standorte),
+            paste0("Betten(frei): ",td$betten_frei),
+            paste0("Betten(belegt): ",td$betten_belegt),
+            paste0("Auslastung(%): ",td$auslastung),
+            paste0("Anteil COVID(%): ",td$pct_covid),
+            sep="<br />")
+        
+        tx2 <- paste(
+            paste0("<b>",mic$name,"</b>"),
+            paste0("Kliniken: ", mic$anzahl_standorte),
+            sep="<br />")
+        
+        p$set(message = "Generating plot...")
+        future_promise({
+            plot_ly(type="choroplethmapbox")
+        }) %...>% add_trace(type="choroplethmapbox",
+                            geojson=gj,
+                            name="Auslastung",
+                            locations = td$gemeinde,
+                            featureidkey = "properties.RS",
+                            z = td$pct_covid,
+                            colorscale = "Bluered",
+                            text = tx,
+                            hovertemplate = "%{text}<extra></extra>"
+        ) %...>%
+            add_trace(type="choroplethmapbox",
+                      geojson=gj,
+                      name="Missing",
+                      locations=mic$gemeinde,
+                      featureidkey = "properties.RS",
+                      color="darkgrey",
+                      z=0,
+                      showscale=F,
+                      text=tx2,
+                      hovertemplate= "%{text}<extra></extra>") %...>%
+            layout(mapbox = list(style="carto-positron",
+                                 zoom=6,
+                                 center = list(lon=10.437657,lat=50.9384167))) %>% finally(~p$close())
+    })
+    
+    ## Footer
+    output$desc <- renderUI({
+        tagList(
+            tags$text("Quellen: "),
+            tags$br(),
+            tags$a(href="https://www.divi.de/divi-intensivregister-tagesreport-archiv-csv?layout=table","Deutsche Interdisziplinäre Vereinigung für Intensiv- und Notfallmedizin"),
+            tags$br(),
+            tags$a(href="https://www.rki.de/DE/Home/homepage_node.html","Robert Koch-Institut"),
+            tags$br(),
+            tags$a(href="https://www.bkg.bund.de/DE/Home/home.html","Bundesamt für Kartographie und Geodäsie")
+        )
+    })
+    
+    output$impressum <- renderUI({
+        tagList(
+            tags$h1("Impressum"),
+            tags$br(),
+            tags$h2("Inhaltlich verantwortlich"),
+            tags$br(),
+            tags$text("Bojan Hartmann"),
+            tags$br(),
+            tags$a(href="mailto:bogie+dashboard@bawki.de","Mail"),
+            tags$br(),
+            tags$a(href="https://github.com/bogie/divi-dashboard","Source code")
+        )
+    })
+    
+    
 }
 
 # Run the application 
