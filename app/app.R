@@ -367,6 +367,12 @@ server <- function(input, output, session) {
         rkiHistory <- arrow::read_feather("data/rkiHistory.feather")
         rkiHistory.mtime <- file.info("data/rkiHistory.feather")$mtime
     }
+    
+    if(file.info("data/rkiVac.feather")$mtime>rkiHistory.mtime) {
+        print("rkiVac.feather changed on disk, reloading")
+        rkiVac <- arrow::read_feather("data/rkiVac.feather")
+        rkiVac.mtime <- file.info("data/rkiVac.feather")$mtime
+    }
 
     if(checkFileCache("data/json_data/hospitals.json",hours(2))) {
         hospitals <- loadHospitalData()
