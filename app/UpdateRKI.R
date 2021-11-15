@@ -148,7 +148,6 @@ rkiVac <- vroom::vroom("data/rkiData/Aktuell_Deutschland_Landkreise_COVID-19-Imp
     mutate(date = ymd(date)) %>%
     group_by(IdLandkreis,Altersgruppe,vcCount) %>%
     mutate(cum_count=cumsum(count)) %>%
-    filter(IdLandkreis=="05334") %>%
     ungroup()
 
 # test %>%

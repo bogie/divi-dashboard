@@ -683,24 +683,33 @@ server <- function(input, output, session) {
             plot_ly(type="scatter",mode="lines") %>%
             add_trace(x=~date,
                       y=~cum_count_Vac1,
+                      text=~Altersgruppe,
                       color=~Altersgruppe,
                       legendgroup="first",
                       line=list(dash="dash"),
-                      legendgrouptitle=list(text="Erste Impfung")) %>%
+                      legendgrouptitle=list(text="Erste Impfung"),
+                      hovertemplate=paste('Impfungen: %{y}',
+                                          sep = "<br>")) %>%
             add_trace(x=~date,
                       y=~cum_count_Vac2,
+                      text=~Altersgruppe,
                       color=~Altersgruppe,
                       legendgroup="second",
                       line=list(dash="dashdot"),
-                      legendgrouptitle=list(text="Zweite Impfung")) %>%
+                      legendgrouptitle=list(text="Zweite Impfung"),
+                      hovertemplate=paste('Impfungen: %{y}',
+                                          sep = "<br>")) %>%
             add_trace(x=~date,
                       y=~cum_count_Vac3,
+                      text=~Altersgruppe,
                       color=~Altersgruppe,
                       legendgroup="third",
-                      legendgrouptitle=list(text="Dritte Impfung")) %>%
+                      legendgrouptitle=list(text="Dritte Impfung"),
+                      hovertemplate=paste('Impfungen: %{y}',
+                                          sep = "<br>")) %>%
             plotly::layout(
                 xaxis = list(
-                    title = "Datum"
+                    title = ""
                 ),
                 yaxis = list(
                     title = "Geimpte"
@@ -709,7 +718,8 @@ server <- function(input, output, session) {
                 legend=list(x=0,
                             y=1,
                             margin=list(l=80,r=30,t=30,b=30)
-                )
+                ),
+                hovermode="x unified"
             )
     })
     
