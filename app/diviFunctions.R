@@ -1,0 +1,232 @@
+suppressPackageStartupMessages(library(lubridate))
+suppressPackageStartupMessages(library(rvest))
+suppressPackageStartupMessages(library(stringr))
+suppressPackageStartupMessages(library(dplyr))
+suppressPackageStartupMessages(library(openxlsx))
+suppressPackageStartupMessages(library(arrow))
+suppressPackageStartupMessages(library(forecast))
+suppressPackageStartupMessages(library(tidymodels))
+suppressPackageStartupMessages(library(modeltime))
+suppressPackageStartupMessages(library(timetk))
+suppressPackageStartupMessages(library(earth))
+suppressPackageStartupMessages(library(prophet))
+
+getDIVIURLsfromRKIArchive <- function(start=0,end=100) {
+    urlSeq <- seq(start,end,by=20)
+    diviArchive <- "https://edoc.rki.de/handle/176904/7012/recent-submissions?offset="
+    pageUrls <- paste0(diviArchive,urlSeq)
+    csvUrls <- lapply(pageUrls, function(pUrl) {
+        diviPage <- read_html(pUrl)
+        urlList <- html_nodes(diviPage,".ds-artifact-item a")
+        urlList <- lapply(urlList,function(x) { html_attr(x,"href")})
+        urlList <- unlist(urlList, recursive = FALSE,use.names = FALSE)
+        return(urlList)
+    })
+    csvUrls <- unlist(csvUrls,recursive = FALSE,use.names = FALSE)
+    csvUrls <- lapply(csvUrls, function(cUrl) {
+        rkiPage <- read_html(paste0("https://edoc.rki.de/",cUrl))
+        dlUrl <- html_nodes(rkiPage, ".ds-artifact-item a")[1]
+        dlUrl <- html_attr(dlUrl,"href")
+        dlUrl <- paste0("https://edoc.rki.de",dlUrl)
+        return(dlUrl)
+    })
+    csvUrls <- unlist(csvUrls,recursive = F, use.names = F)
+    
+    return(csvUrls)
+}
+
+getDiviDataArchiveUrls <- function(start=0,end=60) {
+    urlSeq <- seq(start,end,by=20)
+    diviArchive <- "https://www.divi.de/divi-intensivregister-tagesreport-archiv-csv?layout=table&start="
+    pageUrls <- paste0(diviArchive,urlSeq)
+    csvUrls <- lapply(pageUrls, function(pUrl) {
+        diviPage <- read_html(pUrl)
+        urlList <- html_nodes(diviPage,"#table-document a")
+        urlList <- lapply(urlList,function(x) { html_attr(x,"href")})
+        urlList <- unlist(urlList, recursive = FALSE,use.names = FALSE)
+        return(urlList)
+    })
+    csvUrls <- unlist(csvUrls,recursive = FALSE,use.names = FALSE)
+    return(paste0("https://www.divi.de",csvUrls))
+}
+
+downloadFromArchive <- function(start=0,end=60) {
+    rkiUrls <- getDIVIURLsfromRKIArchive(start,end)
+    newFiles <- lapply(rkiUrls, function(url){
+        fname <- str_split(url,"/",simplify = T)[8]
+        fname <- str_split(fname,"\\?",simplify = T)[1]
+        fname <- str_remove(fname,"_teilbare_divi_daten")
+        fname <- str_replace(fname, "_","-")
+        fname <- paste0("./data/rawData/divi-intensivregister-",fname)
+        if(!file.exists(fname) & str_ends(fname,".csv")) {
+            download.file(url,fname)
+            return(fname)
+        }
+    })
+}
+
+downloadDIVIdata <- function(start=0,end=60) {
+    diviUrls <- getDiviDataArchiveUrls(start,end)
+    newFiles <- lapply(diviUrls, function(x) {
+        splts <- str_split(x,"/",simplify = TRUE)
+        filename <- paste0("./data/rawData/",splts[7],".csv")
+        if(!file.exists(filename)) {
+            download.file(x,filename)
+            return(filename)
+        }
+        return()
+    })
+    print(paste0("Downloaded divi data: ",length(newFiles)," new entries retrieved. Files: "))
+    print(newFiles)
+}
+
+getLatestDIVIdata <- function() {
+    csv <- read.csv("https://diviexchange.blob.core.windows.net/%24web/DIVI_Intensivregister_Auszug_pro_Landkreis.csv")
+    fname <- ifelse(is.factor(csv$daten_stand),levels(csv$daten_stand),max(csv$daten_stand)) %>%
+        as_datetime(.,format="%Y-%m-%d %H:%M:%S") %>%
+        as.character.Date(.,format="%Y-%m-%d-%H-%M")
+    fname <- str_c(fname,".csv")
+    write.csv(csv,file=str_c("./data/rawData/divi-intensivregister-",fname))
+    return(fname)
+}
+
+createForecastData <- function() {
+    print("Creating data for forecasting")
+    diviSummed <- diviData %>% group_by(date) %>%
+        summarise(sum_intub = sum(faelle_covid_aktuell_beatmet),
+                  sum_covid = sum(faelle_covid_aktuell),
+                  sum_newCases = sum(AnzFallErkrankung,na.rm = T),
+                  sum_cumCases = sum(KumFall,na.rm=T),
+                  mean_7dIncidence = mean(Incidence_7d_per_100k,na.rm=T)) %>%
+        ungroup() %>%
+        filter(!is.na(sum_intub) & !is.na(sum_covid)) %>%
+        mutate(lockdown_level = factor(
+            case_when(
+                date <= ymd("2020-03-23") ~ 0,
+                date <= ymd("2020-05-03") ~ 3,
+                date <= ymd("2020-11-02") ~ 1,
+                date <= ymd("2020-12-16") ~ 2,
+                date <= ymd("2021-03-04") ~ 3,
+                date <= ymd("2021-04-19") ~ 2,
+                date <= ymd("2021-05-01") ~ 1,
+                date <= ymd("2021-08-07") ~ 0,
+                TRUE ~ 1
+            )
+        ),
+        mean_7dIncidence = ifelse(is.na(mean_7dIncidence),lag(mean_7dIncidence),mean_7dIncidence)
+        )
+    return(diviSummed)
+}
+
+createForecasts <- function(df, varname) {
+    splits <- df %>% select(date, varname, lockdown_level, mean_7dIncidence) %>%
+        time_series_split(date_var = date,assess = "4 weeks", cumulative = T)
+    
+    # ARIMA
+    model_fit_arima_no_boost <- arima_reg() %>%
+        set_engine(engine="auto_arima") %>%
+        fit(as.formula(paste0(varname, "~ date + lockdown_level")), data = training(splits))
+    
+    model_fit_arima_boosted <- arima_boost(
+        min_n = 2,
+        learn_rate = 0.015
+    ) %>%
+        set_engine(engine = "auto_arima_xgboost") %>%
+        fit(as.formula(paste0(varname, "~ date +
+                as.numeric(date) +
+                factor(month(date, label = TRUE), ordered = F, levels=c('Jan','Feb','Mrz','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez')) +
+                lockdown_level")),
+            data = training(splits))
+    # ETS
+    model_fit_ets <- exp_smoothing() %>%
+        set_engine(engine = "ets") %>%
+        fit(as.formula(paste0(varname, "~ date + lockdown_level")), data = training(splits))
+    
+    # Prophet
+    model_fit_prophet <- prophet_reg() %>%
+        set_engine(engine = "prophet") %>%
+        fit(as.formula(paste0(varname, "~ date + lockdown_level")), data = training(splits))
+    
+    # LM
+    model_fit_lm <- linear_reg() %>%
+        set_engine("lm") %>%
+        fit(as.formula(paste0(varname, "~ as.numeric(date) +
+        factor(month(date, label = TRUE), ordered = FALSE, levels=c('Jan','Feb','Mrz','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez')) +
+                              lockdown_level")),
+            data = training(splits))
+    
+    # MARS
+    model_spec_mars <- mars(mode = "regression") %>%
+        set_engine("earth")
+    
+    # recipe_spec <- recipe(as.formula(paste0(varname, "~ date + lockdown_level + mean_7dIncidence")),
+    #                       data = training(splits)) %>%
+    #     step_date(date, features = "month", ordinal = FALSE) %>%
+    #     step_mutate(date_num = as.numeric(date)) %>%
+    #     step_normalize(date_num) %>%
+    #     step_rm(date) %>%
+    #     step_lag(mean_7dIncidence,lag=14) %>%
+    #     step_impute_knn(lag_14_mean_7dIncidence,neighbors = 3) %>%
+    #     #step_naomit(lag_14_mean_7dIncidence) %>%
+    #     step_rm(mean_7dIncidence)
+    recipe_spec <- recipe(as.formula(paste0(varname, "~ date + lockdown_level")),
+                          data = training(splits)) %>%
+        step_date(date, features = "month", ordinal = FALSE) %>%
+        step_mutate(date_num = as.numeric(date)) %>%
+        step_normalize(date_num) %>%
+        step_rm(date)
+    
+    
+    wflw_fit_mars <- workflow() %>%
+        add_recipe(recipe_spec) %>%
+        add_model(model_spec_mars) %>%
+        fit(training(splits))
+    
+    
+    models_tbl <- modeltime_table(
+        model_fit_arima_no_boost,
+        model_fit_arima_boosted,
+        model_fit_ets,
+        model_fit_prophet,
+        model_fit_lm,
+        wflw_fit_mars
+    )
+    
+    calibration_tbl <- models_tbl %>%
+        modeltime_calibrate(testing(splits),quiet = FALSE)
+    
+    
+    accuracy_tbl <- calibration_tbl %>%
+        modeltime_accuracy()
+    
+    refit_tbl <- calibration_tbl %>%
+        modeltime_refit(df)
+    
+    last_day <- df %>%
+        filter(date==max(date))
+    
+    future_tbl <- df %>% future_frame(.length_out="2 weeks") %>%
+        # mutate(lockdown_level = last_day$lockdown_level,
+        #        sum_newCases = last_day$sum_newCases)
+        left_join(
+            select(
+                mutate(df,date=date+days(14)),
+                date,
+                sum_newCases,
+                lockdown_level,
+                mean_7dIncidence),
+            by="date")
+    
+    forecast_tbl <- refit_tbl %>% modeltime_forecast(actual_data=df,new_data = future_tbl)
+    forecast_tbl <- forecast_tbl %>%
+        left_join(df %>% select(date,sum_newCases,lockdown_level,mean_7dIncidence) %>%
+                      rbind(future_tbl),by=c(".index"="date"))
+    
+    model_id_best <- accuracy_tbl %>% filter(.model_id != 4) %>%
+        filter(mase==min(mase,na.rm=T)) %>% .$.model_id
+    
+    out_df <- forecast_tbl %>% filter(.model_id==model_id_best) %>%
+        mutate(variable=varname) %>%
+        pivot_wider(names_from=variable,values_from=c(.value,.conf_lo,.conf_hi))
+    return(list(data=out_df,accuracy=accuracy_tbl))
+}

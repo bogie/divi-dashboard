@@ -6,3 +6,5 @@ services:
     build: .
     volumes:
       - '/home/shiny/data:/root/diviDashboard/data'
+    ports:
+      - "3838:3838"
