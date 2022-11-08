@@ -20,13 +20,16 @@ This dashboard is available at [shiny.bawki.de/covid](https://shiny.bawki.de/cov
 
 ## Build the docker image
 
-Download this repository
-
+1. Download this repository
 `git clone git@github.com:bogie/divi-dashboard.git`
-
-And build the docker image, make sure to substitute <image name> with your desired name for the image, I personally use `bawki/divi-dashboard`
-
-`sudo docker build -t <image name> .`
+2. Generate a Mapbox Token from [mapbox.com](https://docs.mapbox.com/help/glossary/access-token/) and save to
+```
+app/mapBoxToken
+```
+3. Build the docker image, make sure to substitute `<image name>` with your desired name for the image, I personally use `bawki/divi-dashboard`
+```
+sudo docker build -t <image name> .
+```
 
 ## Configuration
 
@@ -60,6 +63,8 @@ MAILTO=your@email.tld
 0 4 * * * cd /srv/shiny/dashboard/data && Rscript UpdateRKI.R
 ```
 
+
+
 ## shinyproxy.io
 
 This docker image is used in conjunction with [shinyproxy.io](https://shinyproxy.io/), make sure you have a working instance and use the following entry in your `application.yml`.
@@ -77,4 +82,4 @@ specs:
     heartbeat-timeout: -1
 ```
 
-Make sure you substitute <UID> and <GID> as the data user, and <image name> with the build name you used earlier to build the docker image.
+Make sure you substitute `<UID>` and `<GID>` as the data user ids, and `<image name>` with the build name you used earlier to build the docker image.
