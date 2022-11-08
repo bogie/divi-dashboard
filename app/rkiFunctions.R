@@ -116,13 +116,13 @@ updateRKIdataNew <- function() {
         "790f5423e03e49c4baec55a1a232c136_0"
     )
     
-    # sapply(ids, function(id) {
-    #     url <- paste0(prefix,id,suffix)
-    #     fname <- paste0("data/rkiData/RKI_state_",id,".csv")
-    #     print(paste0("Downloading file: ",fname))
-    #     download.file(url,fname)
-    #     Sys.sleep(30)
-    # })
+    sapply(ids, function(id) {
+        url <- paste0(prefix,id,suffix)
+        fname <- paste0("data/rkiData/RKI_state_",id,".csv")
+        print(paste0("Downloading file: ",fname))
+        download.file(url,fname)
+        Sys.sleep(30)
+    })
 
     rki.files <- paste0("data/rkiData/RKI_state_",ids,".csv")
     
