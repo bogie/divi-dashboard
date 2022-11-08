@@ -51,7 +51,7 @@ mkdir -p /srv/shiny/dashboard/data/rkiData
 2. Copy or link the update scripts from the git folder
 ```
 cd /srv/shiny/dashboard/
-ln -s /path/to/app/UpdateRKI.R
+ln -s /path/to/app/updateRKI.R
 ln -s /path/to/app/updateDIVIdata.R
 ```
 3. make sure the folders are owned by the user, which will run the R scripts and has read/write access to the data folder
@@ -60,7 +60,7 @@ ln -s /path/to/app/updateDIVIdata.R
 # Optional, to get notified each time any of the jobs are running
 MAILTO=your@email.tld
 0 14 * * * cd /srv/shiny/dashboard/data && Rscript updateDIVIdata.R
-0 4 * * * cd /srv/shiny/dashboard/data && Rscript UpdateRKI.R
+0 4 * * * cd /srv/shiny/dashboard/data && Rscript updateRKI.R
 ```
 
 
