@@ -72,6 +72,8 @@ updateRKIhistory <- function() {
     
     
     rkiHistory <- rkiHistory.jsonList %>% bind_rows()
+    rkiHistory[rkiHistory$AdmUnitId %in% c(11001:11012),]$AdmUnitId <- "11000"
+
     rkiHistory <- rkiHistory %>% mutate(Datum = as.POSIXct(Datum/1000,origin="1970-01-01")) %>%
         mutate(Datum = as.Date(Datum))
     rkiHistory$AdmUnitId <- ifelse(str_length(rkiHistory$AdmUnitId)==4,str_c("0",rkiHistory$AdmUnitId),rkiHistory$AdmUnitId)
