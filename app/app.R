@@ -28,26 +28,6 @@ loadPackages(packageList = c("shiny","plotly","dplyr","lubridate","rvest",
                              "stringr","openxlsx","shinythemes","jsonlite",
                              "forecast","tidymodels","modeltime","timetk","earth",
                              "rjson","promises","future","cachem"))
-
-# library(shiny)
-# library(plotly)
-# library(dplyr)
-# library(lubridate)
-# library(rvest)
-# library(stringr)
-# library(openxlsx)
-# library(shinythemes)
-# library(jsonlite)
-# library(forecast)
-# library(tidymodels)
-# library(modeltime)
-# library(timetk)
-# library(earth)
-# library(rjson)
-# library(promises)
-# library(future)
-# library(cachem)
-
 plan(multisession)
 
 options(Ncpus = 6,encoding = "UTF-8")
@@ -124,8 +104,9 @@ getReportingSections <- function(hospital) {
         download.file(url,fname)
     }
     
-    json <- jsonlite::fromJSON(fname)
-    json %>% dplyr::select(bezeichnung)
+    json <- jsonlite::fromJSON(fname,flatten = T)
+    #json %>% dplyr::select(bezeichnung)
+    return(json)
 }
 
 getHospitalContact <- function(ikNumber) {
@@ -240,7 +221,7 @@ ui <- navbarPage(id = "page", theme=shinytheme("darkly"),
         tags$meta(name="description",content="Inoffizielles COVID-19 Dashboard basierend auf DIVI und RKI Daten"),
         tags$meta(property="og:title",content="COVID-19 Dashboard - shiny.bawki.de"),
         tags$meta(property="og:type", content="website"),
-        tags$meta(property="og:url",content="https://shiny.bawki.de/"),
+        tags$meta(property="og:url",content="https://shiny.bawki.de/covid/"),
         tags$meta(property="og:locale",content="de_DE"),
         tags$meta(property="og:description",content="Inoffizielles COVID-19 Dashboard basierend auf DIVI und RKI Daten")
     ),
@@ -253,7 +234,8 @@ ui <- navbarPage(id = "page", theme=shinytheme("darkly"),
                                                       "High Care"="maxBettenStatusEinschaetzungHighCare",
                                                       "ECMO"="maxBettenStatusEinschaetzungEcmo"),
                                           selected = "maxBettenStatusEinschaetzungHighCare", selectize = TRUE),
-            htmlOutput("stats")),
+            htmlOutput("stats"),
+            htmlOutput("statsPlot")),
             column(width = 8, 
                    #tableOutput("plotlyClick")
                    uiOutput("hospitalDetailUI")
@@ -374,9 +356,9 @@ server <- function(input, output, session) {
         rkiVac.mtime <- file.info("data/rkiVac.feather")$mtime
     }
 
-    if(checkFileCache("data/json_data/hospitals.json",hours(2))) {
+    #if(checkFileCache("data/json_data/hospitals.json",hours(2))) {
         hospitals <- loadHospitalData()
-    }
+    #}
     
     observeEvent(getQueryString(session), {
         qry <- getQueryString()
@@ -538,27 +520,63 @@ server <- function(input, output, session) {
         if(!is.null(data)) {
             id <- data$customdata
             json <- getReportingSections(id) %>%
-                bind_rows() %>%
-                dplyr::select(bezeichnung,)
-            rbind(json) %>%
-                rename(Bereich=bezeichnung)
+                select(bezeichnung,letzteMeldung,behandlungsschwerpunktL1,ansprechpartner,tags) %>%
+                rename(Bereich=bezeichnung,
+                       `Letzte Meldung`=letzteMeldung,
+                       `Behandlungsschwerpunkt`=behandlungsschwerpunktL1,
+                       `Spezialisierung`=behandlungsschwerpunktL2,
+                       Ansprechpartner=ansprechpartner) %>%
+                rowwise() %>%
+                mutate(
+                    tags=paste0(tags,collapse=", "),
+                    Ansprechpartner=paste0(Ansprechpartner,collapse=", ")
+                    ) %>% ungroup()
         }
     })
     
     output$stats <- renderUI({
         krStats <- diviData %>% filter(date==max(date) & gemeinde==gemeinde())
         rkiStats <- rkiHistory %>% filter(date==max(date) & gemeinde==gemeinde())
-        strName <- paste("Name:",krStats$name)
-        strType <- paste("Bezeichnung:",krStats$type)
+        strName <- paste("Gemeinde:",krStats$name)
+        #strType <- paste("Bezeichnung:",krStats$type)
         strArea <- paste0("Fläche: ",format(krStats$area,big.mark = ".",decimal.mark = ",",trim=TRUE),"km²")
         strPop <- paste("Einwohner:",format(krStats$pop_all,big.mark = ".",decimal.mark=",",trim = TRUE))
         strStd <- paste("Standorte:",krStats$anzahl_standorte)
         strBetten <- paste0("Betten(frei/gesamt): ",krStats$betten_frei,"/",krStats$betten_frei+krStats$betten_belegt)
-        strIncidence <- paste0("7-Tage Inzidenz: ",round(rkiStats$Incidence_7d_per_100k,0))
+        strIncidence <- paste0("7-Tage Inzidenz: ",round(rkiStats$Incidence_7d_per_100k,0),"Fälle/100.000 Einwohner")
         strFälle <- paste0("Neue Fälle seit gestern: ",rkiStats$FallNeu)
         strDate <- paste("Aktualisiert(DIVI):",krStats$daten_stand)
         strDate2 <- paste("Aktualisiert(RKI):",rkiStats$date)
-        HTML(paste(strName,strType,strArea,strPop,strStd,strBetten,strIncidence,strDate,strDate2,sep="<br />"))
+        HTML(paste(strName,
+                   #strType,
+                   strArea,
+                   strPop,
+                   strStd,
+                   strBetten,
+                   strIncidence,
+                   strDate,
+                   strDate2,
+                   sep="<br />"))
+    })
+    
+    output$statsPlot <- renderUI({
+        df <- rkiHistory %>% filter(gemeinde==gemeinde())
+
+        inc_today <- df %>% filter(date == max(date)) %>% select(Incidence_7d_per_100k) %>% .$Incidence_7d_per_100k %>%
+            round(.,0)
+        inc_change_one <- df %>%
+            filter(date >= max(date)-days(1)) %>%
+            summarise(
+                pct=(Incidence_7d_per_100k-lag(Incidence_7d_per_100k))/lag(Incidence_7d_per_100k)*100) %>%
+            filter(!is.na(pct)) %>%
+            .$pct %>%
+            round(.,2)
+        
+        out <- paste0(
+            "Inzidenz heute: ", inc_today, "(", ifelse(inc_change_one>0,paste0("+",inc_change_one),inc_change_one),"%)", "<br />"
+        )
+        
+        HTML(out)
     })
     
     output$rkiPlot <- renderPlotly({
@@ -676,6 +694,16 @@ server <- function(input, output, session) {
     })
     
     output$rkiVacPlot <- renderPlotly({
+        rkiVac %>%
+            filter(IdLandkreis==gemeinde()) %>%
+            group_by(IdLandkreis,vcCount,date) %>%
+            summarise(cum_count=sum(cum_count)) %>%
+            left_join(kreise,by=c("IdLandkreis"="key")) %>%
+            mutate(pct_vac=cum_count/pop_all*100,vcCount=as.factor(vcCount)) %>%
+            ungroup() %>%
+            plot_ly(type="scatter",mode="lines",x=~date,y=~pct_vac,color=~vcCount)
+        
+        
         rkiVac %>% filter(IdLandkreis == gemeinde()) %>%
             pivot_wider(names_from="vcCount",
                         names_prefix="Vac",

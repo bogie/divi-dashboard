@@ -4,7 +4,7 @@ library(dplyr)
 getDIVIapi <- function() {
     apiData <- fromJSON(file = "https://www.intensivregister.de/api/public/intensivregister",simplify = TRUE)
     apiDFs <- lapply(apiData$data, function(entry) {
-        data.frame(id=entry$krankenhausStandort$id,
+        df <- data.frame(id=entry$krankenhausStandort$id,
                    desc=entry$krankenhausStandort$bezeichnung,
                    road=entry$krankenhausStandort$strasse,
                    nr=entry$krankenhausStandort$hausnummer,
@@ -14,12 +14,22 @@ getDIVIapi <- function() {
                    ikNr=entry$krankenhausStandort$ikNummer,
                    lat=entry$krankenhausStandort$position["latitude"],
                    lon=entry$krankenhausStandort$position["longitude"],
-                   reportDate=entry$meldezeitpunkt,
-                   statusLowCare=entry$bettenStatus["statusLowCare"],
-                   statusHighCare=entry$bettenStatus["statusHighCare"],
-                   statusECMO=entry$bettenStatus["statusECMO"],
-                   reportedUnits=paste(entry$meldebereiche,collapse = ";")
+                   reportDate=entry$letzteMeldezeitpunkt,
+                   statusLowCare=entry$maxBettenStatusEinschaetzungLowCare,
+                   statusHighCare=entry$maxBettenStatusEinschaetzungHighCare,
+                   statusECMO=entry$maxBettenStatusEinschaetzungEcmo
         )
+        
+        reportingUnits <- lapply(entry$meldebereiche, function(meldebereich) {
+            uDf <- data.frame(
+                unitId = meldebereich$meldebereichId,
+                ardsNetwork = meldebreich$ardsNetzwerkMitglied,
+                unitName = meldebereich$meldebereichBezeichnung,
+                
+            )
+        })
+        
+        return(df)
     })
     apiDFs <- bind_rows(apiDFs)
     return(apiDFs)
