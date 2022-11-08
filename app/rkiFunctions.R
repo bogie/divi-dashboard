@@ -132,6 +132,8 @@ updateRKIdataNew <- function() {
     rkiData$Datenstand <- dmy_hm(rkiData$Datenstand)
     rkiData$Refdatum <- ymd_hms(rkiData$Refdatum)
     
+    rkiData$IdLandkreis <- ifelse(str_length(rkiData$IdLandkreis)==4,str_c("0",rkiData$IdLandkreis),rkiData$IdLandkreis)
+    
     rkiData[rkiData$IdLandkreis %in% c(11001:11012),]$IdLandkreis <- "11000"
     rkiData[rkiData$IdLandkreis == "09473",]$IdLandkreis <- "09463"
     rkiData[rkiData$IdLandkreis == "09573",]$IdLandkreis <- "09563"

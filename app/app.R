@@ -354,7 +354,7 @@ server <- function(input, output, session) {
         rkiHistory.mtime <- file.info("data/rkiHistory.feather")$mtime
     }
     
-    if(file.info("data/rkiVac.feather")$mtime>rkiHistory.mtime) {
+    if(file.info("data/rkiVac.feather")$mtime>rkiVac.mtime) {
         print("rkiVac.feather changed on disk, reloading")
         rkiVac <- arrow::read_feather("data/rkiVac.feather")
         rkiVac.mtime <- file.info("data/rkiVac.feather")$mtime
