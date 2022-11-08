@@ -94,6 +94,68 @@ updateRKIhistory <- function() {
     arrow::write_feather(rkiHistory, "data/rkiHistory.feather", compression = "uncompressed")
 }
 
+updateRKIdataNew <- function() {
+    prefix <- "https://opendata.arcgis.com/api/v3/datasets/"
+    suffix <- "/downloads/data?format=csv&spatialRefId=4326&where=1%3D1"
+    ids <- c(
+        "8a0b7d7c9fb442ffaa512221cf11366e_0",
+        "45258e51f57d43efb612f700a876ae8f_0",
+        "3949d6fd2dc74386b763e451f4c6e384_0",
+        "5f81692e203a4888a64cb1976aafbd34_0",
+        "f7bdcbe7188545daabe65e6c9e2a4379_0",
+        "ab2c1b9c36734faf937cd83dee339517_0",
+        "3ed997d4a8a447f09ab122a1a432b070_0",
+        "d6c27576ee034bb78621012738615598_0",
+        "14d82a9addf841789cd6ef5c1f67476a_0",
+        "a99afefd4258435f8af660b6cbed9bf7_0",
+        "57e385f51a07495cb0a1e00a55ee1b5b_0",
+        "0e59e1262dba4f5f8d6a904113bf7c99_0",
+        "3d3235c08d4f44a2afd088546b704902_0",
+        "06a1c943a9b845968b5ad0607f5f48f5_0",
+        "4a648483aedd49b8a6655290181d4c2a_0",
+        "790f5423e03e49c4baec55a1a232c136_0"
+    )
+    
+    # sapply(ids, function(id) {
+    #     url <- paste0(prefix,id,suffix)
+    #     fname <- paste0("data/rkiData/RKI_state_",id,".csv")
+    #     print(paste0("Downloading file: ",fname))
+    #     download.file(url,fname)
+    #     Sys.sleep(30)
+    # })
+
+    rki.files <- paste0("data/rkiData/RKI_state_",ids,".csv")
+    
+    rkiData <- vroom::vroom(rki.files, col_types = "nccccccccnnnnnnncn")
+    
+    rkiData$Meldedatum <- ymd_hms(rkiData$Meldedatum)
+    rkiData$Datenstand <- dmy_hm(rkiData$Datenstand)
+    rkiData$Refdatum <- ymd_hms(rkiData$Refdatum)
+    
+    rkiData[rkiData$IdLandkreis %in% c(11001:11012),]$IdLandkreis <- "11000"
+    rkiData[rkiData$IdLandkreis == "09473",]$IdLandkreis <- "09463"
+    rkiData[rkiData$IdLandkreis == "09573",]$IdLandkreis <- "09563"
+    
+    rkiData <- rkiData %>%
+        group_by(IdBundesland,IdLandkreis,Refdatum, Altersgruppe) %>%
+        summarise(cases=sum(AnzahlFall), deaths=sum(AnzahlTodesfall)) %>%
+        group_by(IdBundesland,IdLandkreis, Altersgruppe) %>%
+        mutate(cumCases=cumsum(cases),cumDeaths=cumsum(deaths)) %>% ungroup()
+    arrow::write_feather(rkiData,"data/rki.feather", compression = "uncompressed")
+    
+    # Possible future code, when arcgis stops randomly failing concurrent downloads
+    # no_cores <- detectCores()
+    # clust <- makeCluster(no_cores)
+    # clusterExport(clust, c("prefix","suffix"))
+    # parSapply(clust, ids, function(id) {
+    #     url <- paste0(prefix,id,suffix)
+    #     fname <- paste0("data/rkiData/RKI_state_",id,".csv")
+    #     download.file(url,fname)
+    # })
+    # 
+    # stopCluster(clust)
+}
+
 ## RKI Data
 updateRKIdata <- function() {
     tryCatch({
@@ -154,7 +216,7 @@ updateRKIvaccination <- function() {
 }
 
 updateRKI <- function() {
-    updateRKIdata()
+    updateRKIdataNew()
     updateRKIhistory()
     updateRKIvaccination()
     updateRKIRvalues()
