@@ -44,7 +44,7 @@ if(!file.exists("data/rki.feather") ||
    !file.exists("data/rkiR.feather") ||
    !file.exists("data/rkiKeyData.feather") ||
    !file.exists("data/rkiVac.feather")) {
-    source("./UpdateRKI.R", encoding = "UTF-8")
+    source("./updateRKI.R", encoding = "UTF-8")
 }
 
 fix.encoding <- function(df, originalEncoding = "UTF-8") {
@@ -135,6 +135,10 @@ blNames <- c("Schleswig-Holstein",
              "Sachsen",
              "Sachsen-Anhalt",
              "Thüringen")
+
+kreise <- read.xlsx("./04-kreise.xlsx",sheet = 2, startRow = 6)
+colnames(kreise) <- c("key","type","name","NUTS3","area","pop_all","pop_male","pop_female","pop_per_km2")
+kreise <- kreise %>% filter(!is.na(name) & !is.na(key))
 
 # Load data
 hospitals <- loadHospitalData()
@@ -520,7 +524,7 @@ server <- function(input, output, session) {
         if(!is.null(data)) {
             id <- data$customdata
             json <- getReportingSections(id) %>%
-                select(bezeichnung,letzteMeldung,behandlungsschwerpunktL1,ansprechpartner,tags) %>%
+                select(bezeichnung,letzteMeldung,behandlungsschwerpunktL1,behandlungsschwerpunktL2,ansprechpartner,tags) %>%
                 rename(Bereich=bezeichnung,
                        `Letzte Meldung`=letzteMeldung,
                        `Behandlungsschwerpunkt`=behandlungsschwerpunktL1,
