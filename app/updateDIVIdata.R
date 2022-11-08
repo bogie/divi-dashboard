@@ -51,11 +51,22 @@ diviData$faelle_covid_aktuell_invasiv_beatmet <- NULL
 
 diviData <- diviData %>%
     mutate_at(c("anzahl_standorte","betten_frei","betten_belegt",
-                "anzahl_meldebereiche","faelle_covid_aktuell","faelle_covid_aktuell_beatmet"),
+                "anzahl_meldebereiche","faelle_covid_aktuell","faelle_covid_aktuell_beatmet",
+                "betten_belegt_nur_erwachsen","betten_frei_nur_erwachsen"),
               as.numeric) %>%
-    mutate(date=as.Date(date)) %>%
-    left_join(kreise,by=c("gemeinde"="key"))
+    mutate(date=as.Date(date)) 
 
+# DIVI has uploaded some strange county data for county ids: 02100,02200,02300,02400,02500,02600,02700
+# Hamburg(id 02000) has 34 reporting sections, which is the same as the sum of 02100->02700
+
+diviData[diviData$gemeinde %in% c("02100","02200","02300","02400","02500","02600","02700"),]$gemeinde <- "02000"
+diviData <- diviData %>%
+    group_by(date,bundesland,daten_stand,gemeinde) %>%
+    summarise_all(sum) %>%
+    ungroup()
+
+diviData <- diviData %>%
+    left_join(kreise,by=c("gemeinde"="key"))
 
 diviData <- diviData %>%
     mutate(
@@ -98,4 +109,3 @@ arrow::write_feather(diviData,"data/divi.feather", compression = "uncompressed")
 arrow::write_feather(gemeindeNamen,"data/gemeinden.feather", compression = "uncompressed")
 arrow::write_feather(diviForecast,"data/diviForecast.feather", compression = "uncompressed")
 arrow::write_feather(accuracyTables,"data/diviForecastAccuracy.feather", compression = "uncompressed")
-

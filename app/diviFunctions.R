@@ -65,6 +65,7 @@ downloadFromArchive <- function(start=0,end=60) {
     })
 }
 
+# deprecated
 downloadDIVIdata <- function(start=0,end=60) {
     diviUrls <- getDiviDataArchiveUrls(start,end)
     newFiles <- lapply(diviUrls, function(x) {
